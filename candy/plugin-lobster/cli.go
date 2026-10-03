@@ -52,6 +52,31 @@ func runCLI(args []string, _ *sdk.Executor) (int, error) {
 	}
 }
 
+// CliMain is the `command:lobster` entrypoint, and it is REQUIRED, not optional.
+//
+// A plugin is reached by one of exactly two routes, and both name this function
+// (or its absence breaks them):
+//
+//   - EXTERNAL (the default for a new plugin) — charly host-builds ./cmd/serve,
+//     and that shim passes this function as the third argument of sdk.Main.
+//     Without a cmd/serve main the plugin cannot be connected at all.
+//   - COMPILED IN — `sdk/cmd/charly-lib-gen` emits
+//     `{Provider: X.NewProvider, Meta: X.NewMeta, CLI: X.CliMain}` for every
+//     listed plugin, so a missing exported CliMain is a COMPILE ERROR there.
+//
+// It forwards to the SAME runCLI that Invoke(OpRun) drives, so the two routes
+// cannot drift. Unlike plugin-task's CliMain this one runs anywhere: lobster's
+// CLI is self-contained (it reads a file / writes a directory) and needs no host
+// project, so dropping the executor is safe in both placements.
+func CliMain(args []string) int {
+	code, err := runCLI(args, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lobster: %v\n", err)
+		return 1
+	}
+	return code
+}
+
 func cliUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: charly lobster <command> [args]
 
