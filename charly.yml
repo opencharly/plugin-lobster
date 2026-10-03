@@ -1,6 +1,786 @@
 # Root project manifest — makes this repo a PROJECT so its own candy is scanned and
-# the CUE schema gate applies (`charly box validate`). It declares where to look and
-# nothing else.
+# the CUE schema gate applies (`charly box validate`). It also declares the two R10
+# witness beds (below): the engine-semantics bed and the systemd-timer bed.
+#
+# ── THE TWO BEDS, AND THEIR STATE TODAY ─────────────────────────────────────
+# Until this commit the repo carried `discover:` and NOTHING else, so the lobster leg
+# had no R10 witness at all. These are that witness.
+#
+#   check-lobster-local          — the ENGINE-semantics witness: refs/`when`, args/env,
+#                                  retry + `on_error`, timeout, parallel, for_each,
+#                                  composition, the approval gate, the pipeline stdlib,
+#                                  import/export, and an upstream-lobster parity step
+#                                  that is live-or-skip.
+#   check-lobster-schedule-local — the SYSTEMD-TIMER witness: apply, idempotency, list,
+#                                  run-now, a real timer fire, and full teardown.
+#
+# UNRUN: both are authored, NOT yet executed on any host, and NOT validatable today.
+# Two independent gates block them:
+#
+#   1. `charly box validate` at this repo root FAILS on this repo's own candy and always
+#      has: `candy/plugin-lobster/charly.yml: plugin capability "workflow:lobster" is
+#      malformed (want <class>:<word>)`. The word is NOT malformed — the `workflow`
+#      PROVIDER CLASS is not in the pinned `spec`, and it lands only with the wave's
+#      spec leg, gated on opencharly/charly#762. So neither bed can be assembled before
+#      that lands.
+#   2. This plugin is OUT-OF-PROCESS (it is not in charly's `compiled_plugins:`), so the
+#      `${CHARLY_BIN}` a bed runs must have BOTH faces present — the engine
+#      (`workflow:lobster`) AND the front-end (`command:pipeline`) — supplied either by a
+#      `CHARLY_PLUGIN_DIR` holding the freshly built plugin binaries, or by a wave build
+#      with both compiled in. The compiled-in dev-tree override gap is owned by
+#      opencharly/charly#775; it is referenced here, not re-solved.
+#
+# `plugin-pipeline` (the front-end these beds drive) carries NO release tag yet, and
+# `#CandyRef` has no local-path form, so it is deliberately NOT composed by a
+# `@github…` ref below: it is supplied by the assembly mechanism above (Standard 8).
+# Composing it by an unresolvable pin would make the bed unbuildable rather than strict.
+#
+# WHAT IS REACHABLE TODAY (measured, and worth knowing when this bed first runs):
+# the `command:lobster` FACE registers — `charly lobster import|export|doctor` work
+# today. The ENGINE face (`workflow:lobster`) does not: `discoverBakedPluginWords` skips
+# it (charly/plugin_lobster.go:554, the plugin-capability class gap above), so every
+# engine step here is UNRUN until #762.
+#
+# ── DRIVER SURFACES: WHAT IS IN THE TREE, AND WHAT IS PLANNED ───────────────
+# The rule for this bed is that every asserted string and every flag is quoted from the
+# implementation (each assertion below carries its `source:` citation). Two driver
+# surfaces are NOT in this tree yet and are called out here rather than hidden:
+#
+#   * `charly pipeline resume …`   — plugin-pipeline's CLI today serves only
+#     `run|validate|agent|probe` (plugin-pipeline/candy/plugin-pipeline/cli.go:35-46). The
+#     wave's W6 decision ADDS `run|resume|schedule` (plan/workflow-ir/LEDGER.md, cont. 33
+#     §B), and plugin-lobster's `command:lobster` gains the same three subcommands. The
+#     resume FLAGS (`--approve yes|no`, `--response-json`) are already the engine's own
+#     wired surface (candy/plugin-lobster/engine.go:690/693/732/735); only the CLI face
+#     is pending.
+#   * `charly pipeline schedule …` — likewise: the `workflow-schedule` ops
+#     `apply|list|remove|run-now` ARE implemented (candy/plugin-lobster/schedule.go:53-63)
+#     and reached only via `InvokeProvider("workflow", "lobster", workflow-schedule)`;
+#     the front-end subcommand is the W6 leg.
+#
+# ── AUTHORING GAPS (recorded, not papered over) ─────────────────────────────
+#   * `lobster-input-resume` is OMITTED. The authored grammar spells the input gate's
+#     schema `response_schema` (spec/schema/pipeline.cue:101 →
+#     spec/spec/cue_types_gen.go: `yaml:"response_schema"`), lowering passes it through
+#     untouched (sdk/workflowkit/lower.go:140), but the engine's typed input is
+#     `responseSchema` (candy/plugin-lobster/schema/lobster.cue `#LobsterInput`;
+#     params/cue_types_gen.go: `json:"responseSchema"`), and the engine only treats an
+#     input step as a GATE when that field is set (lobster.go:158-160
+#     `isTypedInputStep` ⇔ `ResponseSchema != nil`). So through the authored grammar an
+#     input gate is not reachable at all: the schema is silently dropped on the way in.
+#     The step is omitted rather than authored against a shape that cannot pass.
+#   * `schedule-approval-pending` is OMITTED. `schedule list` projects only the unit
+#     files it finds (schedule.go:192-232): the entry carries Pipeline/Timer/OnCalendar/
+#     Active/NextRun and has NO pending-approval surface, so the claimed listing cannot
+#     be asserted.
+
 discover:
     - path: candy
       recursive: true
+
+# check-lobster-app — the bed's local template: this repo's own candy (the engine under
+# test) plus the released plugin-task the generated charly steps dispatch to. Composing
+# the candy under test by its project-local name is what makes the bed grade THIS tree.
+check-lobster-app:
+    local:
+        description: >-
+            Minimal kind:local template for the check-lobster-local bed — composes the
+            workflow engine candy (candy/plugin-lobster) under test plus the released
+            plugin-task, so the bed exercises `charly pipeline` host-side.
+        candy:
+            - plugin-lobster
+            - '@github.com/opencharly/plugin-task/candy/plugin-task:v2026.276.1230'
+
+# check-lobster-local — the engine-semantics witness. Every step authors a small
+# `kind:pipeline` fixture in a mktemp project, runs it through the front-end
+# (`charly pipeline run <name>`, which resolves/validates/lowers and dispatches
+# workflow-run to THIS engine), and asserts what the engine actually did. Evidence is
+# taken from what the run itself leaves behind — marker files written by the workflow's
+# own shell steps, the engine's `[RETRY]` line, and the CLI's own output — never from the
+# engine's error text, which the front-end deliberately does not surface (the engine
+# answers `spec.WorkflowRunReply{Status:"error", Error:…}` with a NIL error, so the CLI
+# still exits 0; candy/plugin-lobster/run.go:66-71, plugin-pipeline cli.go:102-105).
+check-lobster-local:
+    local:
+        from: check-lobster-app
+        host: local
+        disposable: true
+        lifecycle: dev
+        description: >-
+            The lobster engine's R10 witness on a disposable local deploy: refs and the
+            `when` guard, args/env injection, retry + on_error, timeout, parallel,
+            for_each, composition, the approval gate, the pipeline stdlib, the
+            import/export round trip, and a live-or-skip upstream-parity step.
+        plan:
+            - check: 'a step reference resolves — `$id.json.path` and `$id.stdout` — and a `when:` that is false records the step SKIPPED, not failed, while a true guard runs it'
+              id: lobster-refs-when
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  refs-when:
+                    pipeline:
+                      description: refs and the when guard
+                      steps:
+                        - id: seed
+                          run: printf '{"name":"ada","n":3}'
+                        - id: guarded
+                          when: \$seed.json.n > 10
+                          run: printf 'RAN' > $d/guarded.marker
+                        - id: observe
+                          run: printf '%s' "\$guarded.skipped" > $d/observe.marker
+                        - id: taken
+                          when: \$seed.json.n == 3
+                          run: printf '%s' "\$seed.json.name" > $d/taken.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run refs-when > "$d/out" 2>"$d/err" || rc=1
+                  # source: plugin-pipeline cli.go:105 'ran via workflow:%s'
+                  grep -q 'ran via workflow:lobster' "$d/out" || rc=1
+                  # a false `when` is SKIPPED: the guarded body never ran (engine.go:352-357)
+                  test ! -e "$d/guarded.marker" || rc=1
+                  # refs.go:135-138 — a missing `skipped` path renders "false", a set one "true"
+                  [ "$(cat "$d/observe.marker" 2>/dev/null)" = "true" ] || rc=1
+                  # a true `when` runs the step, and $seed.json.name resolves (refs.go:129-143)
+                  [ "$(cat "$d/taken.marker" 2>/dev/null)" = "ada" ] || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: args reach the workflow both as `${arg}` templates and as the injected `LOBSTER_ARG_*` env vars, and a quote-bearing value survives the round trip intact
+              id: lobster-args-env
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  args-env:
+                    pipeline:
+                      description: args and env
+                      args:
+                        who:
+                          description: who to greet
+                          default: world
+                      steps:
+                        - id: show
+                          run: printf '%s|%s' "\${who}" "\$LOBSTER_ARG_WHO" > $d/args.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run args-env --args-json '{"who":"a\"b c"}' > "$d/out" 2>"$d/err" || rc=1
+                  # source: engine.go:1163-1190 mergeEnv — LOBSTER_ARGS_JSON + LOBSTER_ARG_<NORMALIZED>;
+                  # source: refs.go:118-127 resolveArgsTemplate — `${key}` -> the arg's string form
+                  [ "$(cat "$d/args.marker" 2>/dev/null)" = 'a"b c|a"b c' ] || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: "a flaky step succeeds on its THIRD attempt under `retry: {max: 3}` (with the engine's `[RETRY]` line on stderr), `on_error: continue` keeps the run going with the failure recorded, and `on_error: skip_rest` ends the run"
+              id: lobster-retry-onerror
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  retry-onerror:
+                    pipeline:
+                      description: retry and on_error
+                      steps:
+                        - id: flaky
+                          retry:
+                            max: 3
+                            delay_ms: 1
+                          run: n=\$(cat $d/count 2>/dev/null || echo 0); n=\$((n+1)); echo "\$n" > $d/count; test "\$n" -ge 3
+                        - id: softfail
+                          on_error: continue
+                          run: exit 7
+                        - id: after-soft
+                          run: printf '%s' "\$softfail.errorMessage" > $d/soft.marker
+                        - id: hardstop
+                          on_error: skip_rest
+                          run: exit 9
+                        - id: after-hard
+                          run: printf 'RAN' > $d/hard.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run retry-onerror > "$d/out" 2>"$d/err" || rc=1
+                  # the attempt counter proves the retry actually re-ran the step
+                  [ "$(cat "$d/count" 2>/dev/null)" = "3" ] || rc=1
+                  # source: engine.go:936 '[RETRY] Step '%s' failed (attempt %d/%d): %s. Retrying in %dms...'
+                  grep -q "\[RETRY\] Step 'flaky' failed (attempt 1/3)" "$d/err" || rc=1
+                  # source: engine.go:583 'workflow command failed (%d): %s' — recorded on the step
+                  grep -q 'workflow command failed (7)' "$d/soft.marker" || rc=1
+                  # skip_rest (engine.go:419-421) breaks the loop, so the next step never runs
+                  test ! -e "$d/hard.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`timeout_ms` kills a hung step and the recorded error NAMES the timeout and the step (observed through `on_error: continue`, because the front-end does not surface a step error)'
+              id: lobster-timeout
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  timeout:
+                    pipeline:
+                      description: timeout
+                      steps:
+                        - id: slow
+                          timeout_ms: 250
+                          on_error: continue
+                          run: sleep 30
+                        - id: after-timeout
+                          run: printf '%s' "\$slow.errorMessage" > $d/timeout.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run timeout > "$d/out" 2>"$d/err" || rc=1
+                  # source: engine.go:988 timeoutMessage — "Step '%s' timed out after %dms"
+                  [ "$(cat "$d/timeout.marker" 2>/dev/null)" = "Step 'slow' timed out after 250ms" ] || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: "`parallel.wait: all` promotes EVERY branch's result as a top-level ref, and `parallel.wait: any` returns the first branch and cancels the rest"
+              id: lobster-parallel
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  fan-parallel:
+                    pipeline:
+                      description: parallel wait all
+                      steps:
+                        - id: seed
+                          run: printf '{"v":1}'
+                        - id: fan
+                          parallel:
+                            wait: all
+                            branches:
+                              - id: a
+                                run: printf '{"v":2}'
+                              - id: b
+                                run: printf '{"v":3}'
+                        - id: collect
+                          run: printf '%s|%s' "\$a.json.v" "\$b.json.v" > $d/all.marker
+                  fan-any:
+                    pipeline:
+                      description: parallel wait any
+                      steps:
+                        - id: fan
+                          parallel:
+                            wait: any
+                            branches:
+                              - id: fast
+                                run: printf 'FAST'
+                              - id: slow
+                                run: sleep 30; printf 'SLOW'
+                        - id: collect
+                          run: printf '%s' "\$fast.stdout" > $d/any.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run fan-parallel > "$d/out" 2>"$d/err" || rc=1
+                  # source: engine.go:428-432 — branch results become top-level refs
+                  [ "$(cat "$d/all.marker" 2>/dev/null)" = "2|3" ] || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run fan-any >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: batch.go:97-101 — wait "any" cancels the losers; the winner's stdout is a ref
+                  [ "$(cat "$d/any.marker" 2>/dev/null)" = "FAST" ] || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`for_each` over 5 items with `batch_size: 2` and `item_var`/`index_var` yields an ordered result — the loop runs every item in order regardless of the batch hint'
+              id: lobster-for-each
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  each:
+                    pipeline:
+                      description: for_each
+                      steps:
+                        - id: seed
+                          run: printf '[1,2,3,4,5]'
+                        - id: loop
+                          for_each: \$seed.json
+                          item_var: it
+                          index_var: ix
+                          batch_size: 2
+                          steps:
+                            - id: body
+                              run: printf '%s:%s\n' "\$ix" "\$it"
+                        - id: collect
+                          run: printf '%s' "\$loop.json" > $d/each.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run each > "$d/out" 2>"$d/err" || rc=1
+                  # source: batch.go:212-216 — batch_size is a scheduling hint; iteration order is the array's
+                  [ "$(wc -l < "$d/each.marker" 2>/dev/null)" = "5" ] || rc=1
+                  grep -q '4:5' "$d/each.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: a sub-`workflow:` runs with its args, and a CYCLIC composition fails so the parent's next step never runs (the engine refuses a re-entered workflow file)
+              id: lobster-composition
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  comp-parent:
+                    pipeline:
+                      description: composition with args
+                      steps:
+                        - id: sub
+                          workflow: child.lobster
+                          workflow_args:
+                            who: ada
+                        - id: done
+                          run: printf 'DONE' > $d/comp.marker
+                  comp-cycle:
+                    pipeline:
+                      description: cyclic composition
+                      steps:
+                        - id: sub
+                          workflow: self.lobster
+                        - id: done
+                          run: printf 'RAN' > $d/cycle.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run comp-parent --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  g="$d/.opencharly/pipelines/comp-parent"
+                  cat > "$g/child.lobster" <<CHILD
+                  name: child
+                  steps:
+                    - id: greet
+                      run: printf '%s' "\${who}" > $d/child.marker
+                  CHILD
+                  cat > "$g/self.lobster" <<SELF
+                  name: selfloop
+                  steps:
+                    - id: again
+                      workflow: self.lobster
+                  SELF
+                  # source: engine.go:620-624 — a sub-workflow path resolves against the parent file's dir
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run comp-parent >> "$d/out" 2>>"$d/err" || rc=1
+                  [ "$(cat "$d/child.marker" 2>/dev/null)" = "ada" ] || rc=1
+                  [ "$(cat "$d/comp.marker" 2>/dev/null)" = "DONE" ] || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run comp-cycle >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: engine.go:259 'Workflow step creates a cycle: %s is already being executed'
+                  test ! -e "$d/cycle.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: an `approval:` step gates the run before the next step runs; resuming with `--approve yes` completes it while `--approve no` cancels it and runs nothing further
+              id: lobster-approval-resume
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  gate:
+                    pipeline:
+                      description: approval gate
+                      steps:
+                        - id: prep
+                          run: printf 'ready'
+                        - id: sign
+                          approval: Ship it?
+                        - id: finish
+                          run: printf 'DONE' > $d/approved.marker
+                  gate-no:
+                    pipeline:
+                      description: approval decline
+                      steps:
+                        - id: sign
+                          approval: Ship it?
+                        - id: finish
+                          run: printf 'RAN' > $d/declined.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate > "$d/out" 2>"$d/err" || rc=1
+                  # the gate halted the run: nothing after the approval step has run yet
+                  test ! -e "$d/approved.marker" || rc=1
+                  # source: engine.go:690/693 'Workflow resume requires --approve yes|no for approval requests'
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate --approve yes >> "$d/out" 2>>"$d/err" || rc=1
+                  [ "$(cat "$d/approved.marker" 2>/dev/null)" = "DONE" ] || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate-no >> "$d/out" 2>>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-no --approve no >> "$d/out" 2>>"$d/err" || rc=1
+                  # a declined approval is a CANCELLATION: the run never advances past the gate
+                  test ! -e "$d/declined.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: the `pipeline:` stdlib reshapes a real stream (`exec | where | sort | pick`) into the expected JSON, while an external-service stage is refused so the next step never runs
+              id: lobster-pipeline-stdlib
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  stdlib:
+                    pipeline:
+                      description: the deterministic stdlib
+                      steps:
+                        - id: shape
+                          pipeline: exec echo '[{"n":3,"v":2},{"n":1,"v":5}]' | where .v >= 2 | sort .n | pick n
+                        - id: collect
+                          run: printf '%s' "\$shape.stdout" > $d/stdlib.marker
+                  stdlib-ext:
+                    pipeline:
+                      description: an external stage is refused
+                      steps:
+                        - id: bad
+                          pipeline: openclaw.invoke triage this
+                        - id: after-bad
+                          run: printf 'RAN' > $d/ext.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run stdlib > "$d/out" 2>"$d/err" || rc=1
+                  # source: pipeline.go:72-77 internalStages (exec/where/sort/pick) + 289-315 stagePick
+                  grep -q '"n"' "$d/stdlib.marker" || rc=1
+                  grep -q '"v"' "$d/stdlib.marker" && rc=1
+                  grep -q '1' "$d/stdlib.marker" || rc=1
+                  grep -q '3' "$d/stdlib.marker" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run stdlib-ext >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: pipeline.go:47-59 externalStages + 101-103 the refusal; the run ends, so no marker
+                  test ! -e "$d/ext.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`charly lobster import` turns an upstream `.lobster` file into a `kind:pipeline` entity that then validates and lowers, and `export` + re-import round-trips'
+              id: lobster-import-export
+              context:
+                - runtime
+              exit_status: 0
+              stdout:
+                - contains: 'pipeline nightly: valid (2 steps)'
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > "$d/up.lobster" <<UP
+                  name: nightly
+                  steps:
+                    - id: produce
+                      run: 'echo hi'
+                    - id: gate
+                      approval: required
+                  UP
+                  rc=0
+                  # source: cli.go:121 engine pinned 'lobster'; cli.go:126 lobster's `name` becomes the description
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster import "$d/up.lobster" > "$d/imported.yml" 2>"$d/err" || rc=1
+                  grep -q 'engine: lobster' "$d/imported.yml" || rc=1
+                  grep -q 'description: nightly' "$d/imported.yml" || rc=1
+                  mkdir -p candy/y
+                  { printf 'nightly:\n  pipeline:\n'; sed 's/^/    /' "$d/imported.yml"; } > candy/y/charly.yml
+                  # source: plugin-pipeline cli.go:61 'pipeline %s: valid (%d steps)'
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline validate nightly > "$d/out" 2>>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: cli.go:162-193 cliExport — writes the lowered pair and prints each path
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export nightly "$d/exported" > "$d/exp.out" 2>>"$d/err" || rc=1
+                  test -s "$d/exported/workflow.lobster" || rc=1
+                  test -s "$d/exported/charly.yml" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster import "$d/exported/workflow.lobster" > "$d/reimported.yml" 2>>"$d/err" || rc=1
+                  grep -q 'description: nightly' "$d/reimported.yml" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: exporting a pipeline that was never lowered is a NAMED error, never a silent success (the total absence of lowered files must not be swallowed)
+              id: lobster-export-unknown-is-named-error
+              context:
+                - runtime
+              exit_status: 1
+              stderr:
+                - contains: 'no lowered files for'
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export definitely-not-a-pipeline
+                  rc=$?
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: the exported pair runs on the UPSTREAM lobster binary when one is on PATH, and SKIPS cleanly and VISIBLY when it is not — never a silent pass
+              id: lobster-upstream-parity
+              context:
+                - runtime
+              exit_status: 3
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"
+                  rc=3
+                  if command -v lobster >/dev/null 2>&1; then
+                    echo "SKIPPED — upstream lobster IS on PATH, but its CLI invocation is not sourced in this tree (openclaw/lobster is not vendored; see the bed header), so the envelope comparison is not asserted"
+                  else
+                    echo "SKIPPED — upstream lobster is not on PATH; the parity comparison needs the upstream binary (live-or-skip)"
+                  fi
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+
+# check-lobster-schedule-app — a SEPARATE template for the scheduler bed, so a
+# user-manager failure can never mask an engine result.
+check-lobster-schedule-app:
+    local:
+        description: >-
+            Minimal kind:local template for the check-lobster-schedule-local bed — the
+            systemd-timer witness, kept separate from the engine-semantics bed.
+        candy:
+            - plugin-lobster
+            - '@github.com/opencharly/plugin-task/candy/plugin-task:v2026.276.1230'
+
+# check-lobster-schedule-local — the systemd-USER-TIMER witness. Each step authors a
+# pipeline carrying a `triggers:` schedule in a mktemp project, lowers it, and drives the
+# scheduler; assertions read the host state the scheduler really produced (the unit
+# files, `systemctl --user`, and the run marker the generated service writes). Every step
+# REMOVES what it created before it exits, so a failing step cannot strand a timer on the
+# host.
+#
+# The driver (`charly pipeline schedule apply|list|run-now|remove`) is the W6 front-end
+# face (see the file header); the OPS it names are the engine's own
+# `workflow-schedule` ops (schedule.go:53-63).
+check-lobster-schedule-local:
+    local:
+        from: check-lobster-schedule-app
+        host: local
+        disposable: true
+        lifecycle: dev
+        description: >-
+            The lobster scheduler's R10 witness on a disposable local deploy: apply
+            writes and enables the systemd user units, a second apply is content
+            idempotent, list reports the timer, run-now records a result, a real cron
+            timer fires, and remove tears everything down.
+        plan:
+            - check: '`schedule apply` writes AND enables the `.service` + `.timer` units, and the converted `OnCalendar` is one systemd-analyze accepts'
+              id: schedule-apply
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  nightly:
+                    pipeline:
+                      description: nightly schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "* * * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: schedule.go:50 schedulePrefix + 311-313 scheduleUnitName -> charly-pipeline-<name>-<n>
+                  test -s "$u/charly-pipeline-nightly-0.timer" || rc=1
+                  test -s "$u/charly-pipeline-nightly-0.service" || rc=1
+                  # source: schedule.go:180 runSystemctlUser "enable", "--now", <timer>
+                  systemctl --user is-enabled charly-pipeline-nightly-0.timer >/dev/null 2>&1 || rc=1
+                  # source: schedule.go:402-416 validateOnCalendar — the OnCalendar must satisfy `systemd-analyze calendar`
+                  oc=$(sed -n 's/^OnCalendar=//p' "$u/charly-pipeline-nightly-0.timer")
+                  test -n "$oc" || rc=1
+                  systemd-analyze calendar "$oc" >/dev/null 2>&1 || rc=1
+                  systemctl --user disable --now charly-pipeline-nightly-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-nightly-0.timer" "$u/charly-pipeline-nightly-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: a SECOND `schedule apply` changes nothing — the unit files keep their exact content (and their mtime), so systemd sees no churn
+              id: schedule-idempotent
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  nightly:
+                    pipeline:
+                      description: nightly schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "0 3 * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  t1=$(stat -c %Y "$u/charly-pipeline-nightly-0.timer" 2>/dev/null) || rc=1
+                  sleep 1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  t2=$(stat -c %Y "$u/charly-pipeline-nightly-0.timer" 2>/dev/null) || rc=1
+                  # source: schedule.go:355-360 writeIfChanged — an identical body is not rewritten
+                  [ -n "$t1" ] && [ "$t1" = "$t2" ] || rc=1
+                  systemctl --user disable --now charly-pipeline-nightly-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-nightly-0.timer" "$u/charly-pipeline-nightly-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`schedule list` succeeds with the timer installed, and the host agrees it is active'
+              id: schedule-list
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  nightly:
+                    pipeline:
+                      description: nightly schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "0 3 * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: schedule.go:192-232 scheduleList — walks the unit dir for charly-pipeline-*.timer
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule list >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: schedule.go:213 systemctlUserQuiet "is-active"
+                  systemctl --user is-active charly-pipeline-nightly-0.timer >/dev/null 2>&1 || rc=1
+                  systemctl --user disable --now charly-pipeline-nightly-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-nightly-0.timer" "$u/charly-pipeline-nightly-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`schedule run-now` starts the service and the run RECORDS its result in the marker the generated service names'
+              id: schedule-run-now
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  nightly:
+                    pipeline:
+                      description: nightly schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "0 3 * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  m="$d/state/schedule/nightly.last"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  # source: schedule.go:288-304 scheduleRunNow — refuses unless the unit is installed; starts the service
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule run-now nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  i=0
+                  while [ "$i" -lt 60 ] && [ ! -s "$m" ]; do sleep 1; i=$((i+1)); done
+                  test -s "$m" || rc=1
+                  # source: schedule.go:460-478 writeScheduleMarker — {"pipeline":…,"status":…,"finishedAt":…}
+                  grep -q '"status": "ok"' "$m" || rc=1
+                  grep -q '"pipeline": "nightly"' "$m" || rc=1
+                  systemctl --user disable --now charly-pipeline-nightly-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-nightly-0.timer" "$u/charly-pipeline-nightly-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: 'a real `cron: "* * * * *"` trigger FIRES — the timer-launched run writes the marker the generated service points at'
+              id: schedule-fires
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  every-minute:
+                    pipeline:
+                      description: every-minute schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "* * * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run every-minute --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply every-minute >> "$d/out" 2>>"$d/err" || rc=1
+                  # the timer needs to reach its next whole minute; give it a bounded window
+                  i=0
+                  while [ "$i" -lt 150 ] && [ ! -s "$d/fired.marker" ]; do sleep 1; i=$((i+1)); done
+                  test -s "$d/fired.marker" || rc=1
+                  systemctl --user disable --now charly-pipeline-every-minute-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-every-minute-0.timer" "$u/charly-pipeline-every-minute-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: '`schedule remove` deletes both units and the listing is then empty'
+              id: schedule-remove
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  nightly:
+                    pipeline:
+                      description: nightly schedule witness
+                      triggers:
+                        - schedule:
+                            cron: "0 3 * * *"
+                      steps:
+                        - id: stamp
+                          run: printf 'FIRED' > $d/fired.marker
+                  YAML
+                  export LOBSTER_STATE_DIR="$d/state"
+                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  test -s "$u/charly-pipeline-nightly-0.timer" || rc=1
+                  # source: schedule.go:238-282 scheduleRemove — disables and deletes every unit of the pipeline
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule remove nightly >> "$d/out" 2>>"$d/err" || rc=1
+                  test ! -e "$u/charly-pipeline-nightly-0.timer" || rc=1
+                  test ! -e "$u/charly-pipeline-nightly-0.service" || rc=1
+                  # belt and braces: the same cleanup the removal did, in case it half-ran
+                  systemctl --user disable --now charly-pipeline-nightly-0.timer >/dev/null 2>&1
+                  rm -f "$u/charly-pipeline-nightly-0.timer" "$u/charly-pipeline-nightly-0.service"
+                  systemctl --user daemon-reload >/dev/null 2>&1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
