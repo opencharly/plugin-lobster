@@ -1,0 +1,24 @@
+# golangci-lint config for the plugin-task module.
+#
+# Mirrors charly's root config (`default: standard` + gofmt). The errcheck
+# exclusions below are the SAME best-effort output exclusions charly's root
+# config carries: a task CLI prints to stdout, so an unchecked fmt.Fprint* is
+# the idiomatic form.
+version: "2"
+
+run:
+  timeout: 10m
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+
+formatters:
+  enable:
+    - gofmt

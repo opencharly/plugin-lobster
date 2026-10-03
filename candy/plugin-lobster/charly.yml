@@ -1,0 +1,47 @@
+plugin-lobster:
+    candy:
+        description: |-
+            The LOBSTER workflow engine for charly — the `workflow:lobster` provider.
+
+            It is the ONE plugin that EXECUTES a workflow. The authored form is
+            `kind:pipeline` (lobster syntax carrying charly's own step grammar); the
+            front-end (`plugin-pipeline`) resolves and validates it, lowers it to the
+            `(workflow.lobster, charly.yml)` pair in the run's gen dir, and dispatches
+            `InvokeProvider("workflow", "lobster", workflow-<op>)` with the matching
+            `spec.Workflow*Request` in `params_json`. This plugin decodes that request,
+            runs the lowered pair, and answers with lobster's tool-mode envelope v1, so
+            its output is interchangeable with upstream lobster's.
+
+            Four ops: `workflow-run` (execute), `workflow-resume` (answer a pending
+            approval/input gate by resume token or short id), `workflow-schedule`
+            (apply|list|remove|run-now the trigger's systemd-user timers) and
+            `workflow-emit` (lower the IR to a consumer's on-disk form).
+
+            The `command:lobster` face is the CLI: `charly lobster import <file>` turns
+            an upstream `.lobster` file into a `kind:pipeline` entity, `charly lobster
+            export <name>` writes the pair that UPSTREAM lobster can run (charly steps
+            are plain `charly task` invocations), and `charly lobster doctor` reports
+            the engine's capability facts.
+
+            Everything charly-specific runs by invoking `charly` itself against the
+            generated `charly.yml`, so a workflow reaches every plugin of every provider
+            class through the NORMAL core→plugin dispatch — this plugin special-cases no
+            word.
+        plugin:
+            source: github.com/opencharly/plugin-lobster/candy/plugin-lobster
+            providers:
+                - workflow:lobster
+                - command:lobster
+            primary:
+                lobster: lobster
+        plan:
+            - check: the plugin entrypoint, its self-contained CUE schema, and the generated params are all present in the candy directory — a deterministic probe that fails if any is missing
+              id: lobster-module-present
+              context:
+                - build
+              command: "test -f plugin.go && test -f schema/lobster.cue && test -f params/cue_types_gen.go && echo 'plugin.go schema/lobster.cue params/cue_types_gen.go all present'"
+            - check: the provider source declares both faces of the engine — the workflow class and the lobster CLI command — a deterministic probe that fails if a capability is dropped
+              id: lobster-capabilities-declared
+              context:
+                - build
+              command: "grep -q 'Class: \"workflow\", Word: \"lobster\"' plugin.go && grep -q 'Class: \"command\", Word: \"lobster\"' plugin.go && echo 'workflow:lobster + command:lobster declared'"

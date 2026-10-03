@@ -1,0 +1,50 @@
+# The Go gates for this plugin's own module.
+#
+# plugin-lobster ships a real Go module (go.mod + the engine package), so the
+# rulebook's "tests that can fail" (R7) requires a gate that actually runs them:
+# gofmt, the configured golangci-lint set, go vet, and the unit tests (which
+# exercise the lobster executor semantics, the approval/input resume round-trip,
+# the lowered-pair consumption, and the systemd-timer emission).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: candy/plugin-lobster/go.mod
+          cache-dependency-path: candy/plugin-lobster/go.sum
+
+      - name: gofmt
+        working-directory: candy/plugin-lobster
+        run: test -z "$(gofmt -l .)"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.13.2
+          working-directory: candy/plugin-lobster
+
+      - name: go vet
+        working-directory: candy/plugin-lobster
+        run: go vet ./...
+
+      - name: go test
+        working-directory: candy/plugin-lobster
+        run: go test ./...

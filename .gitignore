@@ -1,0 +1,3 @@
+bin/
+# `charly migrate` writes per-step backups as <file>.bak.<unix-ts>; never commit them.
+*.bak.*
