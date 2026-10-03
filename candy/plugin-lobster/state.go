@@ -93,7 +93,12 @@ type resumeState struct {
 	InputSchema        map[string]any         `json:"inputSchema,omitempty"`
 	InputSubject       any                    `json:"inputSubject,omitempty"`
 	SupersededStateKey []string               `json:"supersededResumeStateKeys,omitempty"`
-	CreatedAt          string                 `json:"createdAt"`
+	// RedoCount is this plugin's OWN state (never spec wire): the per-target redo budget at
+	// the moment the run paused, so a resume cannot reset the LOOP-GUARD. Optional and
+	// omitempty — a state file that predates the field loads with a nil map, treated as an
+	// empty budget.
+	RedoCount map[string]int `json:"redoCount,omitempty"`
+	CreatedAt string         `json:"createdAt"`
 
 	// --- the decision, from the wire request (never persisted) ---
 	StateKey    string         `json:"-"`

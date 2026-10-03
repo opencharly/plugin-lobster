@@ -84,6 +84,14 @@ type LobsterStep struct {
 	On_error string `json:"on_error,omitempty"`
 
 	Retry LobsterRetry `json:"retry,omitempty"`
+
+	// redo: the charly-only conditional BACK-EDGE (see #LobsterRedo). It rides a STEP key
+	// because that is the only shape upstream's open loader passes through unchanged: an
+	// unknown step key is ignored by upstream, so an exported workflow.lobster stays
+	// runnable there (it simply runs every step once), while charly's native engine honours
+	// it. This is the operator-ruled route — the retired plugin-pipeline executor carried the
+	// same spec in its own IR.
+	Redo LobsterRedo `json:"redo,omitempty"`
 }
 
 // ── parallel ────────────────────────────────────────────────────────────────
@@ -145,6 +153,21 @@ type LobsterRetry struct {
 	Max_delay_ms any/* CUE number; int64 or float64 */ `json:"max_delay_ms,omitempty"`
 
 	Jitter bool `json:"jitter,omitempty"`
+}
+
+// ── redo ─────────────────────────────────────────────────────────────────────
+// #LobsterRedo: the charly-only conditional BACK-EDGE. A failing step emits a trigger on
+// its stderr ("LOOP-GUARD-TRIGGER: <name>"); `triggers` maps that name to the id of an
+// EARLIER step to re-enter. Upstream lobster has no such key and ignores it, so an exported
+// workflow.lobster stays runnable by upstream (it simply runs every step once).
+type LobsterRedo struct {
+	On_fail any/* CUE disjunction: (string|list) */ `json:"on_fail,omitempty"`
+
+	Triggers map[string]string `json:"triggers,omitempty"`
+
+	Max int64 `json:"max,omitempty"`
+
+	Escalate_after int64 `json:"escalate_after,omitempty"`
 }
 
 // ── cost ────────────────────────────────────────────────────────────────────

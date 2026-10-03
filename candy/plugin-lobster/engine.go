@@ -87,6 +87,48 @@ func getStepExecution(step *params.LobsterStep) (stepKind, string) {
 }
 
 // ---------------------------------------------------------------------------
+// redo — the charly-only conditional back-edge
+// ---------------------------------------------------------------------------
+
+// redoSentinelPrefix is the charly-only carriage for a redo trigger: a plan verb that fails
+// redo-ably prints this line to ITS stderr, which the `charly task` process inherits and this
+// engine captures in full (see attemptStep's kindShell arm). The trigger cannot be derived from
+// the step's redo: spec alone — an ade bed ERROR and an ade fail_on verdict carry the same spec
+// and diverge (one fails hard, one re-enters) — so it must cross the process boundary at runtime.
+const redoSentinelPrefix = "LOOP-GUARD-TRIGGER: "
+
+// redoDefaultMax / redoDefaultEscalate mirror the retired executor's defaults
+// (executor.go:284-291: maxRedo<=0 -> 2, escalateAfter<=0 -> 3).
+const (
+	redoDefaultMax      = 2
+	redoDefaultEscalate = 3
+)
+
+// redoTriggerFromStderr returns the trigger named by the LAST sentinel line in s, or "".
+func redoTriggerFromStderr(s string) string {
+	trigger := ""
+	for _, line := range strings.Split(s, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), redoSentinelPrefix); ok {
+			if name := strings.TrimSpace(rest); name != "" {
+				trigger = name
+			}
+		}
+	}
+	return trigger
+}
+
+// redoTriggerError carries a redo trigger out of a failed shell step to runSteps, which acts on
+// it. The step's stderr is in scope only inside attemptStep, so wrapping the trigger in the
+// error is what reaches the loop without changing attemptStep's signature.
+type redoTriggerError struct {
+	trigger string
+	err     error
+}
+
+func (e *redoTriggerError) Error() string { return e.err.Error() }
+func (e *redoTriggerError) Unwrap() error { return e.err }
+
+// ---------------------------------------------------------------------------
 // engine
 // ---------------------------------------------------------------------------
 
@@ -196,6 +238,11 @@ type runState struct {
 	consumedKey string
 	consumed    bool
 
+	// redoCount is the per-target redo budget. It is persisted across a resume (see
+	// resumeState.RedoCount): the LOOP-GUARD exists to bound re-entries, and a resume that
+	// silently reset the budget would let a run loop forever across restarts.
+	redoCount map[string]int
+
 	costs *costTracker
 }
 
@@ -226,19 +273,25 @@ func (e *engine) runFile(ctx context.Context, filePath string, args map[string]a
 
 func (e *engine) runLoaded(ctx context.Context, filePath string, file *params.LobsterFile, args map[string]any, resume *resumeState) (*runResult, error) {
 	st := &runState{
-		eng:      e,
-		file:     file,
-		filePath: filePath,
-		dir:      filepath.Dir(filePath),
-		args:     resolveWorkflowArgs(file, args, resume),
-		results:  results{},
-		costs:    newCostTracker(file.Cost_limit, e.stderr),
-		resume:   resume,
+		eng:       e,
+		file:      file,
+		filePath:  filePath,
+		dir:       filepath.Dir(filePath),
+		args:      resolveWorkflowArgs(file, args, resume),
+		results:   results{},
+		redoCount: map[string]int{},
+		costs:     newCostTracker(file.Cost_limit, e.stderr),
+		resume:    resume,
 	}
 	if resume != nil {
 		st.consumedKey = resume.StateKey
 		if resume.Steps != nil {
 			st.results = cloneResults(resume.Steps)
+		}
+		// A state file written before this field existed loads with a nil map; the guard
+		// keeps the budget from resetting (see the field's comment).
+		if resume.RedoCount != nil {
+			st.redoCount = resume.RedoCount
 		}
 	}
 
@@ -332,6 +385,19 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 			if isTimeout {
 				errorMessage = timeoutMessage(step)
 			}
+			// The redo back-edge: a step that failed with a trigger re-enters an earlier step
+			// instead of ending the run. `on_error` never sees it.
+			var trgErr *redoTriggerError
+			if errors.As(err, &trgErr) {
+				target, taken, rerr := st.redoBackEdge(step, trgErr.trigger)
+				if rerr != nil {
+					return nil, rerr
+				}
+				if taken {
+					idx = target - 1 // the loop's idx++ lands on target
+					continue
+				}
+			}
 			policy := step.On_error
 			if policy == "" {
 				policy = "stop"
@@ -389,6 +455,60 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 		output = toOutputItems(st.results[st.lastStepID])
 	}
 	return &runResult{Status: "ok", Output: output}, nil
+}
+
+// redoDeclared reports whether a step carries a redo spec at all. The generated params type
+// carries `redo` as a VALUE (cue gengotypes emits an optional struct field as a value, not a
+// pointer — the same shape as `retry`, `input` and `cost_limit` here), so absence is "every
+// field at its zero value": the schema bounds `max`/`escalate_after` to `> 0`, so a set bound is
+// non-zero, and an empty `triggers` map is nil.
+func redoDeclared(r params.LobsterRedo) bool {
+	return r.On_fail != nil || len(r.Triggers) > 0 || r.Max > 0 || r.Escalate_after > 0
+}
+
+// redoBackEdge applies the redo spec of a step that failed with `trigger`. It mirrors the retired
+// executor's block in the SAME order (escalate guard FIRST, then max — executor.go:349 before :353),
+// and returns the index of the step to re-enter. `taken` is false when the step declares no redo
+// spec, so the caller falls through to the on_error policy unchanged.
+//
+// A trigger whose target resolves to no step is a HARD error: the retired engine silently swallowed
+// the failure and ran on (it kept the raw trigger name as the target and matched nothing), which can
+// mask a real failure — this port makes that a named spec defect instead.
+//
+// The bounds are read through the GENERATED STRUCT fields (typed int64), never a map[string]any: a
+// JSON number there is a float64 and a bare `.(int)` assertion always fails — the exact defect that
+// left the retired executor's per-stage override inert (executor.go:341/:344).
+func (st *runState) redoBackEdge(step *params.LobsterStep, trigger string) (target int, taken bool, err error) {
+	if !redoDeclared(step.Redo) {
+		return 0, false, nil
+	}
+	name := trigger
+	if t, ok := step.Redo.Triggers[trigger]; ok {
+		name = t
+	}
+	j, ok := stepIndexByID(st.file.Steps, name)
+	if !ok {
+		return 0, true, fmt.Errorf("Workflow step %s: redo trigger %q maps to no step (%q); fix the redo.triggers map", step.Id, trigger, name)
+	}
+	if st.redoCount == nil {
+		st.redoCount = map[string]int{}
+	}
+	st.redoCount[name]++
+	maxRedo := redoDefaultMax
+	if step.Redo.Max > 0 {
+		maxRedo = int(step.Redo.Max)
+	}
+	escalateAfter := redoDefaultEscalate
+	if step.Redo.Escalate_after > 0 {
+		escalateAfter = int(step.Redo.Escalate_after)
+	}
+	if st.redoCount[name] >= escalateAfter {
+		return 0, true, fmt.Errorf("LOOP-GUARD: %s re-entered %d times (escalate)", name, st.redoCount[name])
+	}
+	if st.redoCount[name] > maxRedo {
+		return 0, true, fmt.Errorf("LOOP-GUARD: exceed redo max %d for %s", maxRedo, name)
+	}
+	return j, true, nil
 }
 
 // executeStep runs one step's exec arm with the retry policy applied. The returned kind
@@ -460,7 +580,14 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 			if detail == "" {
 				detail = command
 			}
-			return nil, nil, fmt.Errorf("workflow command failed (%d): %s", code, truncateBytes(detail, 2000))
+			cause := fmt.Errorf("workflow command failed (%d): %s", code, truncateBytes(detail, 2000))
+			// Scan the UNTRUNCATED stderr, never `detail` (which is capped at 2000 bytes and
+			// may start mid-stream). A sentinel means this failure is REDO-ABLE: carry the
+			// trigger to runSteps, which owns the back-edge.
+			if trg := redoTriggerFromStderr(stderr); trg != "" {
+				return nil, nil, &redoTriggerError{trigger: trg, err: cause}
+			}
+			return nil, nil, cause
 		}
 		res.JSON, res.HasJSON = parseJSON(stdout)
 		return res, nil, nil

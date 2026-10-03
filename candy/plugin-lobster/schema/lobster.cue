@@ -100,6 +100,25 @@
 	timeout_ms?: int & >=1 & <=2147483647
 	on_error?:   "stop" | "continue" | "skip_rest"
 	retry?:      #LobsterRetry
+	// redo: the charly-only conditional BACK-EDGE (see #LobsterRedo). It rides a STEP key
+	// because that is the only shape upstream's open loader passes through unchanged: an
+	// unknown step key is ignored by upstream, so an exported workflow.lobster stays
+	// runnable there (it simply runs every step once), while charly's native engine honours
+	// it. This is the operator-ruled route — the retired plugin-pipeline executor carried the
+	// same spec in its own IR.
+	redo?: #LobsterRedo
+}
+
+// ── redo ─────────────────────────────────────────────────────────────────────
+// #LobsterRedo: the charly-only conditional BACK-EDGE. A failing step emits a trigger on
+// its stderr ("LOOP-GUARD-TRIGGER: <name>"); `triggers` maps that name to the id of an
+// EARLIER step to re-enter. Upstream lobster has no such key and ignores it, so an exported
+// workflow.lobster stays runnable by upstream (it simply runs every step once).
+#LobsterRedo: {
+	on_fail?:        [...string] | string
+	triggers?:       {[string]: string}
+	max?:            int & >0
+	escalate_after?: int & >0
 }
 
 // ── retry ───────────────────────────────────────────────────────────────────

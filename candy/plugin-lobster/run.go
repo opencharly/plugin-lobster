@@ -330,6 +330,11 @@ func copyFile(src, dst string) error {
 // saveGateState persists a paused run and returns its state key.
 func (st *runState) saveGateState(ctx context.Context, rs resumeState) (string, error) {
 	rs.Steps = cloneResults(st.results)
+	// Carry the redo budget across the pause: a resume that reset it would let the run
+	// loop past the bound the budget exists to enforce.
+	if len(st.redoCount) > 0 {
+		rs.RedoCount = st.redoCount
+	}
 	return st.eng.store.save(ctx, &rs)
 }
 
