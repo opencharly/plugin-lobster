@@ -37,7 +37,7 @@ func runCLI(args []string, _ *sdk.Executor) (int, error) {
 	}
 	switch args[0] {
 	case "import":
-		return cliImport(args[1:])
+		return cliImport(args[1:], os.Stdout)
 	case "export":
 		return cliExport(args[1:])
 	case "doctor":
@@ -72,7 +72,7 @@ func cliUsage(w io.Writer) {
 // `name` becomes the pipeline `description`, `engine: lobster` is pinned, and every other
 // key and every step is carried through unchanged. That is why the round trip is stable:
 // nothing is invented.
-func cliImport(args []string) (int, error) {
+func cliImport(args []string, out io.Writer) (int, error) {
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "lobster import: exactly one <file.lobster> argument is required")
 		return 2, nil
@@ -93,7 +93,7 @@ func cliImport(args []string) (int, error) {
 		return 1, nil
 	}
 
-	out := map[string]any{"engine": "lobster"}
+	entity := map[string]any{"engine": "lobster"}
 	description, _ := asString(root["description"])
 	if description == "" {
 		if name, ok := asString(root["name"]); ok && name != "" {
@@ -102,7 +102,7 @@ func cliImport(args []string) (int, error) {
 			description = "Imported from " + filepath.Base(path)
 		}
 	}
-	out["description"] = description
+	entity["description"] = description
 
 	keys := make([]string, 0, len(root))
 	for k := range root {
@@ -114,15 +114,17 @@ func cliImport(args []string) (int, error) {
 		case "name", "description", "engine":
 			continue
 		}
-		out[k] = root[k]
+		entity[k] = root[k]
 	}
 
-	b, err := yaml.Marshal(out)
+	b, err := yaml.Marshal(entity)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "lobster import: %v\n", err)
 		return 1, nil
 	}
-	os.Stdout.Write(b)
+	if _, err := out.Write(b); err != nil {
+		return 1, nil
+	}
 	return 0, nil
 }
 
