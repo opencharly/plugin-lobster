@@ -819,7 +819,7 @@ func (st *runState) dryRun(startIndex int64) (*runResult, error) {
 		}
 		fmt.Fprintf(&b, "%d %s %s %s\n", idx, mark, step.Id, arm)
 		if isTypedInputStep(step.Input) || isApprovalStep(step.Approval) {
-			b.WriteString(fmt.Sprintf("%d gate %s\n", idx, step.Id))
+			fmt.Fprintf(&b, "%d gate %s\n", idx, step.Id)
 		}
 	}
 	text := strings.TrimRight(b.String(), "\n")

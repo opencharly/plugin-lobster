@@ -162,9 +162,9 @@ func (r *stepResult) UnmarshalJSON(data []byte) error {
 		return json.Unmarshal(raw, dst) == nil
 	}
 	_ = decode("id", &r.ID)
-	if decode("stdout", &r.Stdout) {
-		// a present-but-empty stdout is still present
-	}
+	// The decode IS the point: a present-but-empty stdout is still present, so the
+	// field is written either way and the bool result carries no information.
+	_ = decode("stdout", &r.Stdout)
 	if v, ok := m["json"]; ok {
 		if err := json.Unmarshal(v, &r.JSON); err == nil {
 			r.HasJSON = true
