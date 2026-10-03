@@ -59,16 +59,19 @@
 #     the front-end subcommand is the W6 leg.
 #
 # ── AUTHORING GAPS (recorded, not papered over) ─────────────────────────────
-#   * `lobster-input-resume` is OMITTED. The authored grammar spells the input gate's
-#     schema `response_schema` (spec/schema/pipeline.cue:101 →
-#     spec/spec/cue_types_gen.go: `yaml:"response_schema"`), lowering passes it through
-#     untouched (sdk/workflowkit/lower.go:140), but the engine's typed input is
-#     `responseSchema` (candy/plugin-lobster/schema/lobster.cue `#LobsterInput`;
-#     params/cue_types_gen.go: `json:"responseSchema"`), and the engine only treats an
-#     input step as a GATE when that field is set (lobster.go:158-160
-#     `isTypedInputStep` ⇔ `ResponseSchema != nil`). So through the authored grammar an
-#     input gate is not reachable at all: the schema is silently dropped on the way in.
-#     The step is omitted rather than authored against a shape that cannot pass.
+#   * `lobster-input-resume` — NO LONGER OMITTED (it was, and the reason is worth
+#     keeping). The authored grammar spells the input gate's schema `response_schema`
+#     (spec/schema/pipeline.cue:101 → spec/spec/cue_types_gen.go: `yaml:"response_schema"`)
+#     while the engine's typed input is `responseSchema` (candy/plugin-lobster/schema/
+#     lobster.cue `#LobsterInput`; params/cue_types_gen.go: `json:"responseSchema"`), and
+#     the engine treats a step as a gate ONLY when that field is set (lobster.go:158-160
+#     `isTypedInputStep` ⇔ `ResponseSchema != nil`). The lowering used to pass the
+#     authoring spelling through untouched, so the schema was silently dropped on the way
+#     in and an input gate was unreachable through the authored grammar. The sdk leg fixes
+#     exactly this: `mapLobsterInputKey` (sdk/workflowkit/lower.go) renames the key at the
+#     generated file's `input` object. The step below is therefore AUTHORED, and its own
+#     assertion greps the lowered file for `responseSchema:` — the artifact that proves the
+#     translation ran.
 #   * `schedule-approval-pending` is OMITTED. `schedule list` projects only the unit
 #     files it finds (schedule.go:192-232): the entry carries Pipeline/Timer/OnCalendar/
 #     Active/NextRun and has NO pending-approval surface, so the claimed listing cannot
@@ -423,6 +426,71 @@ check-lobster-local:
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-no --approve no >> "$d/out" 2>>"$d/err" || rc=1
                   # a declined approval is a CANCELLATION: the run never advances past the gate
                   test ! -e "$d/declined.marker" || rc=1
+                  cd /; rm -rf "$d"; exit $rc
+                in_container: false
+            - check: 'an `input:` step carrying a `response_schema` gate halts the run with `needs_input`; a schema-valid `--response-json` resume completes it and `$id.json` resolves the answer, while a type-invalid response is refused so the run never advances'
+              id: lobster-input-resume
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  ask:
+                    pipeline:
+                      description: input gate
+                      steps:
+                        - id: ask
+                          input:
+                            prompt: which branch?
+                            response_schema:
+                              type: object
+                              properties:
+                                branch:
+                                  type: string
+                              required:
+                                - branch
+                        - id: finish
+                          run: printf '%s' "\$ask.json.branch" > $d/answered.marker
+                  ask-bad:
+                    pipeline:
+                      description: a type-invalid input response
+                      steps:
+                        - id: ask
+                          input:
+                            prompt: which branch?
+                            response_schema:
+                              type: object
+                              properties:
+                                branch:
+                                  type: string
+                        - id: finish
+                          run: printf 'RAN' > $d/badinput.marker
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run ask > "$d/out" 2>"$d/err" || rc=1
+                  # the gate halted the run: nothing after the input step has run yet
+                  test ! -e "$d/answered.marker" || rc=1
+                  # The authored `response_schema` must REACH the engine as `responseSchema`: the
+                  # engine treats a step as a gate only when that field is set
+                  # (candy/plugin-lobster/lobster.go:158-160 isTypedInputStep ⇔ ResponseSchema != nil),
+                  # so a dropped key makes this step walk straight through and no gate exists at all.
+                  # The LOWERED file is the observable artifact; the translation is
+                  # sdk/workflowkit/lower.go mapLobsterInputKey, and the gen dir is
+                  # plugin-pipeline cli.go:72 `projectDir()/.opencharly/pipelines/<name>`.
+                  grep -q 'responseSchema:' "$d/.opencharly/pipelines/ask/workflow.lobster" || rc=1
+                  # source: engine.go:732/735 'Workflow resume requires --response-json for input requests'
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume ask --response-json '{"branch":"feature/x"}' >> "$d/out" 2>>"$d/err" || rc=1
+                  # refs.go — the recorded response resolves as $ask.json.branch
+                  [ "$(cat "$d/answered.marker" 2>/dev/null)" = "feature/x" ] || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run ask-bad >> "$d/out" 2>>"$d/err" || rc=1
+                  # a schema-INVALID response is refused (gate.go:442-453 validateInputResponse →
+                  # 456-473 unify; the engine answers with a nil error so the CLI still exits 0) —
+                  # assert the EFFECT, never the exit code
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume ask-bad --response-json '{"branch":123}' >> "$d/out" 2>>"$d/err" || rc=1
+                  test ! -e "$d/badinput.marker" || rc=1
                   cd /; rm -rf "$d"; exit $rc
                 in_container: false
             - check: the `pipeline:` stdlib reshapes a real stream (`exec | where | sort | pick`) into the expected JSON, while an external-service stage is refused so the next step never runs
