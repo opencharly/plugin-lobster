@@ -9,17 +9,31 @@
 #   check-lobster-local          — the ENGINE-semantics witness: refs/`when`, args/env,
 #                                  retry + `on_error`, timeout, parallel, for_each,
 #                                  composition, the approval gate, the pipeline stdlib,
-#                                  import/export, and an upstream-lobster parity step
-#                                  that is live-or-skip.
+#                                  and the import/export round trip. EVERY step in it can
+#                                  FAIL — none is a declared skip (see the note that closes
+#                                  its plan).
 #   check-lobster-schedule-local — the SYSTEMD-TIMER witness: apply, idempotency, list,
 #                                  run-now, a real timer fire, and full teardown.
 #
-# MEASURED STATE (2026-10-04, on the module head `c9c1058`): BOTH BEDS RAN AND PASSED
-# AGAINST THE MERGED DRIVER — `check-lobster-local` 13/13 steps, `ok: true`
-# (`.check/check-lobster-local/2026.277.2109/`); `check-lobster-schedule-local` 6/6 steps,
-# `ok: true` (`.check/check-lobster-schedule-local/2026.277.2110/`). And `charly box
-# validate` at this repo root PASSES:
+# MEASURED STATE (2026-10-05): BOTH BEDS ARE GREEN ON THIS BRANCH, AGAINST THE MERGED DRIVER —
+# `check-lobster-local` 12/12 steps, `ok: true`; `check-lobster-schedule-local` 6/6 steps,
+# `ok: true`. And `charly box validate` at this repo root PASSES:
 # `OK — checked 3 candies, 2 deploys, 7 distros, 7 builders; 0 warnings, 0 errors`.
+#
+# This header names NO run directory and NO commit SHA, on purpose. A run is evidence about a
+# tree that CONTAINS it: a run dir or SHA written into this file describes a tree that cannot
+# contain the line doing the describing, and goes stale the moment anyone amends a comment
+# above it. The run directories, timings and `summary.yml` values for the head under review are
+# cited in that PR's body, which is the artifact that CAN name a commit. What this file states
+# is only what is invariant under a comment-only edit of itself: the step counts and their
+# result.
+#
+# The engine bed's count moved 13 -> 12 by REMOVING a step, not by dropping a test. The
+# `lobster-upstream-parity` step could not fail — its `exit_status: 3` made a self-declared skip
+# the step's EXPECTED exit code, and both of its branches set `rc=3` unconditionally — so it was
+# deleted rather than repaired, and the reason is recorded in its place at the end of that bed's
+# plan (and in the PR body). Every remaining step in both beds can FAIL; none is a declared skip.
+#
 # The two gates that made an earlier revision of this header say "UNRUN" are closed:
 #
 #   1. `charly box validate` used to FAIL here with `plugin capability "workflow:lobster"
@@ -30,8 +44,8 @@
 #   2. This plugin is OUT-OF-PROCESS (it is not in charly's `compiled_plugins:`), so the
 #      `${CHARLY_BIN}` a bed runs must have BOTH faces present — the engine
 #      (`workflow:lobster`) AND the front-end (`command:pipeline`). The compiled-in
-#      dev-tree override is owned by opencharly/charly#775 (issue, still OPEN), and its
-#      fix — `scripts/bootstrap-charly.sh --dev-plugin <candy>=<checkout>` — is
+#      dev-tree override was owned by opencharly/charly#775 (CLOSED 2026-10-04T19:54:53Z),
+#      and its fix — `scripts/bootstrap-charly.sh --dev-plugin <candy>=<checkout>` — is
 #      opencharly/charly#788 (MERGED, released in `v2026.277.1528`). The two runs above
 #      were made with a build of exactly that route.
 #
@@ -120,8 +134,8 @@ check-lobster-local:
         description: >-
             The lobster engine's R10 witness on a disposable local deploy: refs and the
             `when` guard, args/env injection, retry + on_error, timeout, parallel,
-            for_each, composition, the approval gate, the pipeline stdlib, the
-            import/export round trip, and a live-or-skip upstream-parity step.
+            for_each, composition, the approval gate, the pipeline stdlib, and the
+            import/export round trip. Every step here can FAIL: none is a declared skip.
         plan:
             - check: 'a step reference resolves — `$id.json.path` and `$id.stdout` — and a `when:` that is false records the step SKIPPED, not failed, while a true guard runs it'
               id: lobster-refs-when
@@ -770,22 +784,31 @@ check-lobster-local:
                   fi
                   cd /; exit $rc
                 in_container: false
-            - check: the exported pair runs on the UPSTREAM lobster binary when one is on PATH, and SKIPS cleanly and VISIBLY when it is not — never a silent pass
-              id: lobster-upstream-parity
-              context:
-                - runtime
-              exit_status: 3
-              command:
-                command: |-
-                  d=$(mktemp -d); cd "$d"
-                  rc=3
-                  if command -v lobster >/dev/null 2>&1; then
-                    echo "SKIPPED — upstream lobster IS on PATH, but its CLI invocation is not sourced in this tree (openclaw/lobster is not vendored; see the bed header), so the envelope comparison is not asserted"
-                  else
-                    echo "SKIPPED — upstream lobster is not on PATH; the parity comparison needs the upstream binary (live-or-skip)"
-                  fi
-                  cd /; rm -rf "$d"; exit $rc
-                in_container: false
+            # ── A STEP THAT WAS HERE, AND WHY IT IS NOT ────────────────────────────
+            # This bed used to end with `lobster-upstream-parity`: run the exported
+            # `(workflow.lobster, charly.yml)` pair through the UPSTREAM lobster binary and
+            # diff the envelope. It is REMOVED, because it could not fail.
+            #
+            # `exit_status: 3` makes 3 the step's EXPECTED exit code — i.e. a pass — and the
+            # step set `rc=3` unconditionally and exited 3 on BOTH branches, each of which
+            # only printed a `SKIPPED — …` line. One branch fired when `lobster` was absent;
+            # the other fired when it was PRESENT, and then skipped too, because
+            # openclaw/lobster is not vendored here and its CLI invocation was never
+            # established. So the step never invoked upstream lobster at all: it could not
+            # fail, it asserted nothing, and its exit code laundered a permanent skip into
+            # one of the bed's "passed" steps.
+            #
+            # That is the exact pathology the file header of charly's own bed warns about —
+            # "a bed that reports SKIP where it meant to prove something" (charly.yml, the
+            # `SKIP`-doctrine note) — and it is the same class the schedule bed's own
+            # lie-by-skip was. A step that cannot fail is not evidence, so it is deleted
+            # rather than kept as a green no-op (R5: a cutover removes the old path).
+            #
+            # What is NOT deleted is the claim it was pretending to make. The upstream
+            # parity is simply NOT ASSERTED by this bed, and the PR body says so plainly
+            # instead of counting a skip as a pass. Restoring it needs an upstream lobster
+            # whose invocation this repo can source, which is a change with a real
+            # interface to test — it lands then, with that interface, and not before.
 
 # check-lobster-schedule-app — a SEPARATE template for the scheduler bed, so a
 # user-manager failure can never mask an engine result.
