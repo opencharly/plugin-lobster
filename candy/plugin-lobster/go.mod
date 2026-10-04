@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	cuelang.org/go v0.16.1
 	github.com/opencharly/sdk v0.2026276.152
-	github.com/opencharly/spec v0.2026276.0
+	github.com/opencharly/spec v0.2026277.1407
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
