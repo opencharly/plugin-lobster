@@ -689,10 +689,13 @@ func (st *runState) applyResume(ctx context.Context) error {
 		if r.HasResponse {
 			return fmt.Errorf("Workflow resume requires --approve yes|no for approval requests")
 		}
-		if !r.Cancel && !r.HasApproved {
+		// A nil `Approved` is a request that carried NO decision at all. Refuse it by
+		// name: the wire can now say "rejected" explicitly (`approve: false`), so an
+		// absent answer is silence, and silence must never cancel a gate.
+		if !r.Cancel && r.Approved == nil {
 			return fmt.Errorf("Workflow resume requires --approve yes|no for approval requests")
 		}
-		if r.Cancel || !r.Approved {
+		if r.Cancel || !*r.Approved {
 			if st.consumedKey != "" {
 				if err := st.eng.store.delete(ctx, st.consumedKey); err != nil {
 					return err
@@ -728,7 +731,7 @@ func (st *runState) applyResume(ctx context.Context) error {
 			}
 			return errCancelled
 		}
-		if r.HasApproved {
+		if r.Approved != nil {
 			return fmt.Errorf("Workflow resume requires --response-json for input requests")
 		}
 		if !r.HasResponse {

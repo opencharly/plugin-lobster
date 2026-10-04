@@ -51,6 +51,11 @@ func writeWorkflow(t *testing.T, body string) string {
 	return path
 }
 
+// boolPtr takes the address of a bool literal — the test-side spelling of the
+// wire tri-state: boolPtr(true) is an approval, boolPtr(false) a REJECTION, and
+// leaving the field nil is the absence of any answer.
+func boolPtr(v bool) *bool { return &v }
+
 func TestRunShellStepAndRefs(t *testing.T) {
 	eng, _, _ := testEngine(t, nil)
 	path := writeWorkflow(t, `
@@ -310,8 +315,7 @@ steps:
 	// Approve: the run continues from the step AFTER the gate.
 	approved := *st
 	approved.StateKey = payload.StateKey
-	approved.HasApproved = true
-	approved.Approved = true
+	approved.Approved = boolPtr(true)
 	done, err := eng.runFile(context.Background(), path, nil, &approved)
 	if err != nil {
 		t.Fatalf("resume: %v", err)
@@ -335,8 +339,7 @@ steps:
 	}
 	declined := *st2
 	declined.StateKey = p2.StateKey
-	declined.HasApproved = true
-	declined.Approved = false
+	declined.Approved = boolPtr(false)
 	cancelled, err := eng.runFile(context.Background(), path, nil, &declined)
 	if err != nil {
 		t.Fatalf("decline: %v", err)
@@ -373,8 +376,7 @@ steps:
 	}
 	wrong := *stWrong
 	wrong.StateKey = p.StateKey
-	wrong.HasApproved = true
-	wrong.Approved = true
+	wrong.Approved = boolPtr(true)
 	if _, err := engWrong.runFile(context.Background(), path, nil, &wrong); err == nil {
 		t.Fatal("expected the identity policy to refuse the wrong approver")
 	} else if !strings.Contains(err.Error(), "requires approver 'maintainer', got 'someone-else'") {
@@ -390,8 +392,7 @@ steps:
 	}
 	anon := *stAnon
 	anon.StateKey = p.StateKey
-	anon.HasApproved = true
-	anon.Approved = true
+	anon.Approved = boolPtr(true)
 	if _, err := engAnon.runFile(context.Background(), path, nil, &anon); err == nil {
 		t.Fatal("expected the identity policy to refuse an anonymous approver")
 	} else if !strings.Contains(err.Error(), approvalApprovedByEnv) {
@@ -412,8 +413,7 @@ steps:
 	}
 	right := *st2
 	right.StateKey = p.StateKey
-	right.HasApproved = true
-	right.Approved = true
+	right.Approved = boolPtr(true)
 	good, err := engRight.runFile(context.Background(), path, nil, &right)
 	if err != nil {
 		t.Fatalf("approved resume: %v", err)

@@ -101,18 +101,22 @@ func resumeWorkflow(ctx context.Context, _ *pb.InvokeRequest, in spec.WorkflowRe
 		return nil, err
 	}
 
-	// The wire request cannot distinguish "approve: false" from "approve omitted" (CUE
-	// `approve?: bool`), so the decision is read by which field the caller used: a
-	// response is an input answer, `cancel` is a cancellation, and anything else is an
-	// approval decision whose value is `approve`.
+	// The wire request is TRI-STATE, so the decision is read from the field that was
+	// actually set: `response` is an input answer, `cancel` is an ABORT (it says nothing
+	// about whether the proposal is acceptable), and an explicit `approve` — either
+	// value — is the approval decision. `in.Approve` is a *bool, so `false` (a rejection)
+	// and `nil` (no answer given) are DIFFERENT wire values.
+	//
+	// A request that sets NONE of the three carries no decision at all, and it is left
+	// that way: `applyResume` refuses it by name ("requires --approve yes|no") instead of
+	// letting the old catch-all default read a decision-less request as a rejection.
 	switch {
 	case in.Cancel:
 		state.Cancel = true
 	case in.Response != nil:
 		state.HasResponse = true
 		state.Response = in.Response
-	default:
-		state.HasApproved = true
+	case in.Approve != nil:
 		state.Approved = in.Approve
 	}
 

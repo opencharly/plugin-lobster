@@ -101,9 +101,15 @@ type resumeState struct {
 	CreatedAt string         `json:"createdAt"`
 
 	// --- the decision, from the wire request (never persisted) ---
-	StateKey    string         `json:"-"`
-	HasApproved bool           `json:"-"`
-	Approved    bool           `json:"-"`
+	StateKey string `json:"-"`
+	// Approved is TRI-STATE and mirrors the wire field exactly: nil = no approval answer
+	// was given at all, a pointer to false = the human REJECTED the gate, a pointer to
+	// true = approved. The `HasApproved` + `Approved` pair that used to sit here was a
+	// hand-rolled encoding of these same three states, and it existed ONLY because a
+	// plain wire `bool` carrying `omitempty` could not say which state it was in. Now
+	// that the contract carries the pointer, keeping the pair beside it would be two
+	// sources of truth for one decision (R3), so it is replaced rather than joined.
+	Approved    *bool          `json:"-"`
 	Cancel      bool           `json:"-"`
 	HasResponse bool           `json:"-"`
 	Response    map[string]any `json:"-"`
