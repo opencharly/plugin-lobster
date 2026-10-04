@@ -150,7 +150,15 @@ check-lobster-local:
                   [ "$(cat "$d/observe.marker" 2>/dev/null)" = "true" ] || rc=1
                   # a true `when` runs the step, and $seed.json.name resolves (refs.go:129-143)
                   [ "$(cat "$d/taken.marker" 2>/dev/null)" = "ada" ] || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: args reach the workflow both as `${arg}` templates and as the injected `LOBSTER_ARG_*` env vars, and a quote-bearing value survives the round trip intact
               id: lobster-args-env
@@ -178,7 +186,15 @@ check-lobster-local:
                   # source: engine.go:1163-1190 mergeEnv — LOBSTER_ARGS_JSON + LOBSTER_ARG_<NORMALIZED>;
                   # source: refs.go:118-127 resolveArgsTemplate — `${key}` -> the arg's string form
                   [ "$(cat "$d/args.marker" 2>/dev/null)" = 'a"b c|a"b c' ] || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: "a flaky step succeeds on its THIRD attempt under `retry: {max: 3}` (with the engine's `[RETRY]` line on stderr), `on_error: continue` keeps the run going with the failure recorded, and `on_error: skip_rest` ends the run"
               id: lobster-retry-onerror
@@ -220,7 +236,15 @@ check-lobster-local:
                   grep -q 'workflow command failed (7)' "$d/soft.marker" || rc=1
                   # skip_rest (engine.go:419-421) breaks the loop, so the next step never runs
                   test ! -e "$d/hard.marker" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: '`timeout_ms` kills a hung step and the recorded error NAMES the timeout and the step (observed through `on_error: continue`, because the front-end does not surface a step error)'
               id: lobster-timeout
@@ -247,7 +271,15 @@ check-lobster-local:
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run timeout > "$d/out" 2>"$d/err" || rc=1
                   # source: engine.go:988 timeoutMessage — "Step '%s' timed out after %dms"
                   [ "$(cat "$d/timeout.marker" 2>/dev/null)" = "Step 'slow' timed out after 250ms" ] || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: "`parallel.wait: all` promotes EVERY branch's result as a top-level ref, and `parallel.wait: any` returns the first branch and cancels the rest"
               id: lobster-parallel
@@ -297,7 +329,15 @@ check-lobster-local:
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run fan-any >> "$d/out" 2>>"$d/err" || rc=1
                   # source: batch.go:97-101 — wait "any" cancels the losers; the winner's stdout is a ref
                   [ "$(cat "$d/any.marker" 2>/dev/null)" = "FAST" ] || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: '`for_each` over 5 items with `batch_size: 2` and `item_var`/`index_var` yields an ordered result — the loop runs every item in order regardless of the batch hint'
               id: lobster-for-each
@@ -331,7 +371,15 @@ check-lobster-local:
                   # source: batch.go:212-216 — batch_size is a scheduling hint; iteration order is the array's
                   [ "$(wc -l < "$d/each.marker" 2>/dev/null)" = "5" ] || rc=1
                   grep -q '4:5' "$d/each.marker" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: a sub-`workflow:` runs with its args, and a CYCLIC composition fails so the parent's next step never runs (the engine refuses a re-entered workflow file)
               id: lobster-composition
@@ -384,7 +432,15 @@ check-lobster-local:
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run comp-cycle >> "$d/out" 2>>"$d/err" || rc=1
                   # source: engine.go:259 'Workflow step creates a cycle: %s is already being executed'
                   test ! -e "$d/cycle.marker" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: 'an `approval:` step gates the run before the next step runs; resuming with `--approve yes` completes it and `--approve no` cancels it, while a resume whose envelope carries NO decision at all is refused (an error, never a silent rejection) and leaves the gate answerable'
               id: lobster-approval-resume
@@ -459,7 +515,15 @@ check-lobster-local:
                   test ! -e "$d/absent.marker" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-absent --token "$absent_tok" --approve yes >> "$d/out" 2>>"$d/err" || rc=1
                   [ "$(cat "$d/absent.marker" 2>/dev/null)" = "RAN" ] || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: 'an `input:` step carrying a `response_schema` gate halts the run with `needs_input`; a schema-valid `--response-json` resume completes it and `$id.json` resolves the answer, while a type-invalid response is refused so the run never advances'
               id: lobster-input-resume
@@ -524,7 +588,15 @@ check-lobster-local:
                   # assert the EFFECT, never the exit code
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume ask-bad --response-json '{"branch":123}' >> "$d/out" 2>>"$d/err" || rc=1
                   test ! -e "$d/badinput.marker" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: the `pipeline:` stdlib reshapes a real stream (`exec | where | sort | pick`) into the expected JSON, while an external-service stage is refused so the next step never runs
               id: lobster-pipeline-stdlib
@@ -563,7 +635,15 @@ check-lobster-local:
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run stdlib-ext >> "$d/out" 2>>"$d/err" || rc=1
                   # source: pipeline.go:47-59 externalStages + 101-103 the refusal; the run ends, so no marker
                   test ! -e "$d/ext.marker" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: '`charly lobster import` turns an upstream `.lobster` file into a `kind:pipeline` entity that then validates and lowers, and `export` + re-import round-trips'
               id: lobster-import-export
@@ -600,7 +680,15 @@ check-lobster-local:
                   test -s "$d/exported/charly.yml" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster import "$d/exported/workflow.lobster" > "$d/reimported.yml" 2>>"$d/err" || rc=1
                   grep -q 'description: nightly' "$d/reimported.yml" || rc=1
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: exporting a pipeline that was never lowered is a NAMED error, never a silent success (the total absence of lowered files must not be swallowed)
               id: lobster-export-unknown-is-named-error
@@ -615,7 +703,15 @@ check-lobster-local:
                   printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export definitely-not-a-pipeline
                   rc=$?
-                  cd /; rm -rf "$d"; exit $rc
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
                 in_container: false
             - check: the exported pair runs on the UPSTREAM lobster binary when one is on PATH, and SKIPS cleanly and VISIBLY when it is not — never a silent pass
               id: lobster-upstream-parity
