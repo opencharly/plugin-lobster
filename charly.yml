@@ -386,7 +386,7 @@ check-lobster-local:
                   test ! -e "$d/cycle.marker" || rc=1
                   cd /; rm -rf "$d"; exit $rc
                 in_container: false
-            - check: an `approval:` step gates the run before the next step runs; resuming with `--approve yes` completes it while `--approve no` cancels it and runs nothing further
+            - check: 'an `approval:` step gates the run before the next step runs; resuming with `--approve yes` completes it and `--approve no` cancels it, while a resume whose envelope carries NO decision at all is refused (an error, never a silent rejection) and leaves the gate answerable'
               id: lobster-approval-resume
               context:
                 - runtime
@@ -414,18 +414,51 @@ check-lobster-local:
                           approval: Ship it?
                         - id: finish
                           run: printf 'RAN' > $d/declined.marker
+                  gate-absent:
+                    pipeline:
+                      description: approval gate answered with no decision
+                      steps:
+                        - id: sign
+                          approval: Ship it?
+                        - id: finish
+                          run: printf 'RAN' > $d/absent.marker
                   YAML
                   rc=0
-                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate > "$d/out" 2>"$d/err" || rc=1
+                  # `--mode tool` is REQUIRED: the engine's gate is interactive when stdin is a
+                  # character device (a terminal, and also /dev/null — a check runner's usual
+                  # stdin), which would prompt on the terminal instead of saving the gate. The
+                  # wire path a resume answers is by definition non-interactive.
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate --mode tool > "$d/out" 2>"$d/err" || rc=1
                   # the gate halted the run: nothing after the approval step has run yet
                   test ! -e "$d/approved.marker" || rc=1
                   # source: engine.go:690/693 'Workflow resume requires --approve yes|no for approval requests'
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate --approve yes >> "$d/out" 2>>"$d/err" || rc=1
                   [ "$(cat "$d/approved.marker" 2>/dev/null)" = "DONE" ] || rc=1
-                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate-no >> "$d/out" 2>>"$d/err" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate-no --mode tool >> "$d/out" 2>>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-no --approve no >> "$d/out" 2>>"$d/err" || rc=1
                   # a declined approval is a CANCELLATION: the run never advances past the gate
                   test ! -e "$d/declined.marker" || rc=1
+                  # --- the wire's THIRD state: `approve` ABSENT (neither yes nor no) ---
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate-absent --mode tool >> "$d/out" 2>>"$d/err" || rc=1
+                  test ! -e "$d/absent.marker" || rc=1
+                  # the handle the paused run recorded, read BEFORE the resume: a refused resume
+                  # retires pending.json (the reply carries no token), so the token is kept aside.
+                  absent_tok=$(sed -n 's/.*"resumeToken":"\([^"]*\)".*/\1/p' "$d/.opencharly/pipelines/gate-absent/pending.json")
+                  test -n "$absent_tok" || rc=1
+                  # NO --approve flag at all: the envelope carries no decision on the wire
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-absent --token "$absent_tok" > "$d/absent.out" 2>&1 || rc=1
+                  # REFUSED — never silently read as `approve: false` and cancelled. The reply is an
+                  # ERROR, not a cancellation. source: engine.go:690/696 — the engine refuses by name
+                  # ('Workflow resume requires --approve yes|no for approval requests'); that NAMED
+                  # text is pinned in engine_test.go, because this front-end does not surface the
+                  # engine's error text, so the bed asserts on the CLI's own output + artifacts.
+                  grep -q 'status=error' "$d/absent.out" || rc=1
+                  ! grep -q 'status=cancelled' "$d/absent.out" || rc=1
+                  # a REFUSAL, not a cancellation: the gate is untouched and still answerable, so
+                  # the SAME token with a real decision still completes the run
+                  test ! -e "$d/absent.marker" || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume gate-absent --token "$absent_tok" --approve yes >> "$d/out" 2>>"$d/err" || rc=1
+                  [ "$(cat "$d/absent.marker" 2>/dev/null)" = "RAN" ] || rc=1
                   cd /; rm -rf "$d"; exit $rc
                 in_container: false
             - check: 'an `input:` step carrying a `response_schema` gate halts the run with `needs_input`; a schema-valid `--response-json` resume completes it and `$id.json` resolves the answer, while a type-invalid response is refused so the run never advances'
