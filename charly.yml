@@ -14,9 +14,11 @@
 #   check-lobster-schedule-local — the SYSTEMD-TIMER witness: apply, idempotency, list,
 #                                  run-now, a real timer fire, and full teardown.
 #
-# MEASURED STATE (2026-10-04, on the module head `e29a519`): BOTH BEDS RAN AND PASSED —
-# `check-lobster-local` 13/13 steps, `ok: true`; `check-lobster-schedule-local` 6/6
-# steps, `ok: true`. And `charly box validate` at this repo root now PASSES:
+# MEASURED STATE (2026-10-04, on the module head `c9c1058`): BOTH BEDS RAN AND PASSED
+# AGAINST THE MERGED DRIVER — `check-lobster-local` 13/13 steps, `ok: true`
+# (`.check/check-lobster-local/2026.277.2109/`); `check-lobster-schedule-local` 6/6 steps,
+# `ok: true` (`.check/check-lobster-schedule-local/2026.277.2110/`). And `charly box
+# validate` at this repo root PASSES:
 # `OK — checked 3 candies, 2 deploys, 7 distros, 7 builders; 0 warnings, 0 errors`.
 # The two gates that made an earlier revision of this header say "UNRUN" are closed:
 #
@@ -33,28 +35,36 @@
 #      opencharly/charly#788 (MERGED, released in `v2026.277.1528`). The two runs above
 #      were made with a build of exactly that route.
 #
-# `plugin-pipeline` (the front-end these beds drive) carries NO release tag for the legs
-# these beds use, and `#CandyRef` has no local-path form, so it is deliberately NOT
-# composed by a `@github…` ref below: it is supplied by the host assembly above. Composing
-# it by an unresolvable pin would make the bed unbuildable rather than strict.
+# `plugin-pipeline` (the front-end these beds drive) is deliberately NOT composed by a
+# `@github…` ref below. The front-end is reached HOST-SIDE — every step runs
+# `${CHARLY_BIN} pipeline …`, never `charly task` against a composed candy — so a ref here
+# would add a candy the bed never invokes. The host assembly above is what supplies it, and
+# since opencharly/plugin-pipeline#32 it is supplied from a MERGED commit (see below).
 #
-# ── DRIVER SURFACES: WHAT IS IN THE TREE, AND WHAT IS PLANNED ───────────────
+# ── DRIVER SURFACES: EVERY ONE THESE BEDS DRIVE IS IN A RELEASED TREE ───────
 # The rule for this bed is that every asserted string and every flag is quoted from the
-# implementation (each assertion below carries its `source:` citation). Two driver
-# surfaces are NOT in plugin-pipeline's released tree yet and are called out here rather
-# than hidden — the host assembly above is what supplies them today:
+# implementation (each assertion below carries its `source:` citation). BOTH driver
+# surfaces this bed drives are now RELEASED, so nothing here rests on an unmerged sibling:
 #
-#   * `charly pipeline resume …`   — plugin-pipeline's released CLI serves only
-#     `run|validate|agent|probe` (plugin-pipeline/candy/plugin-pipeline/cli.go:35-46). The
-#     wave's W6 decision ADDS `run|resume|schedule`, and plugin-lobster's `command:lobster`
-#     gains the same three subcommands. The resume FLAGS (`--approve yes|no`,
-#     `--response-json`) are already the engine's own wired surface
-#     (candy/plugin-lobster/engine.go:690/693/732/735); only the CLI face is pending, and
-#     `lobster-approval-resume` / `lobster-input-resume` drive it.
-#   * `charly pipeline schedule …` — likewise: the `workflow-schedule` ops
-#     `apply|list|remove|run-now` ARE implemented (candy/plugin-lobster/schedule.go:53-63)
-#     and reached only via `InvokeProvider("workflow", "lobster", workflow-schedule)`;
-#     the front-end subcommand is the W6 leg.
+#   * `charly pipeline resume …`   — plugin-pipeline's CLI serves
+#     `run|validate|agent|probe|resume|schedule`
+#     (candy/plugin-pipeline/cli.go:52 in the merged tree). It gained `resume` and
+#     `schedule` in opencharly/plugin-pipeline#32, merged as `3d2aee88` and tagged
+#     `v2026.277.2104` (its path-scoped alias `candy/plugin-pipeline/v0.2026277.2104` names
+#     the same commit). The
+#     resume FLAGS (`--approve yes|no`, `--response-json`) are the engine's own wired
+#     surface (candy/plugin-lobster/engine.go:687/693/732/735), and
+#     `lobster-approval-resume` / `lobster-input-resume` drive them.
+#   * `charly pipeline schedule …` — released in that same tag. The `workflow-schedule`
+#     ops `apply|list|remove|run-now` are this repo's
+#     (candy/plugin-lobster/schedule.go:53-63), reached through
+#     `InvokeProvider("workflow", "lobster", workflow-schedule)`; the front-end subcommand
+#     that calls it is #32's (candy/plugin-pipeline/cli.go:176).
+#
+# The two runs in MEASURED STATE above were made with a `${CHARLY_BIN}` built through
+# charly#788's `--dev-plugin plugin-pipeline=<checkout@v2026.277.2104>` (released in charly
+# `v2026.277.1528`), so the driver compiled into that binary is a MERGED commit — there is
+# no unmerged sibling anywhere in either witness.
 #
 # ── AUTHORING GAPS (recorded, not papered over) ─────────────────────────────
 #   * `lobster-input-resume` — NO LONGER OMITTED (it was, and the reason is worth
