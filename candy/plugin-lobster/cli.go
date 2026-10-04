@@ -178,6 +178,14 @@ func cliExport(args []string) (int, error) {
 		fmt.Fprintf(os.Stderr, "lobster export: %v\n", err)
 		return 1, nil
 	}
+	// The pair is written by `pipeline run`'s lowering, so a pipeline that was never run
+	// has NOTHING to export. That case must be a NAMED refusal, never a silent success: a
+	// caller who exports a typo'd name and gets exit 0 with no output believes it exported
+	// something, and the absence is discovered later, somewhere else. The per-file
+	// `continue` below therefore counts what it actually copied, and the count is what
+	// decides the exit status — a pipeline that lowered only its workflow.lobster still
+	// exports exactly what exists.
+	exported := 0
 	for _, f := range []string{"workflow.lobster", "charly.yml", "schedule.json"} {
 		src := filepath.Join(genDir, f)
 		if _, serr := os.Stat(src); serr != nil {
@@ -189,6 +197,11 @@ func cliExport(args []string) (int, error) {
 			return 1, nil
 		}
 		fmt.Println(dst)
+		exported++
+	}
+	if exported == 0 {
+		fmt.Fprintf(os.Stderr, "lobster export: no lowered files for %q in %s — the front-end writes them when the pipeline runs; run `charly pipeline run %s` first\n", pipeline, genDir, pipeline)
+		return 1, nil
 	}
 	return 0, nil
 }

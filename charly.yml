@@ -174,18 +174,31 @@ check-lobster-local:
                     pipeline:
                       description: args and env
                       args:
-                        who:
-                          description: who to greet
+                        plain:
+                          description: a metacharacter-free value — the only shape the ${arg} template can carry
+                          default: world
+                        quoted:
+                          description: a value carrying a shell quote, readable only through the injected env var
                           default: world
                       steps:
-                        - id: show
-                          run: printf '%s|%s' "\${who}" "\$LOBSTER_ARG_WHO" > $d/args.marker
+                        - id: plain
+                          run: printf '%s' "\${plain}" > $d/plain.marker
+                        - id: quoted
+                          run: printf '%s' "\$LOBSTER_ARG_QUOTED" > $d/quoted.marker
                   YAML
                   rc=0
-                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run args-env --args-json '{"who":"a\"b c"}' > "$d/out" 2>"$d/err" || rc=1
-                  # source: engine.go:1163-1190 mergeEnv — LOBSTER_ARGS_JSON + LOBSTER_ARG_<NORMALIZED>;
-                  # source: refs.go:118-127 resolveArgsTemplate — `${key}` -> the arg's string form
-                  [ "$(cat "$d/args.marker" 2>/dev/null)" = 'a"b c|a"b c' ] || rc=1
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run args-env --args-json '{"plain":"ada","quoted":"a\"b c"}' > "$d/out" 2>"$d/err" || rc=1
+                  # source: refs.go:344-346 renderTemplateValue — `${arg}` substitutes the arg's
+                  # string form as RAW TEXT, with NO shell quoting. A metacharacter-free value is
+                  # therefore the only shape the `${arg}` template can carry through a shell
+                  # command intact, which is exactly what this arm measures.
+                  [ "$(cat "$d/plain.marker" 2>/dev/null)" = "ada" ] || rc=1
+                  # source: engine.go:1166-1183 mergeEnv — every arg is ALSO exported as
+                  # LOBSTER_ARG_<NORMALIZED> (engine.go:1142-1161 uppercases the key and folds
+                  # every other rune to `_`), and there the SHELL owns the quoting, so a value
+                  # carrying a `"` survives the round trip verbatim. The env var, not the
+                  # template, is the arm a quote-bearing value must travel.
+                  [ "$(cat "$d/quoted.marker" 2>/dev/null)" = 'a"b c' ] || rc=1
                   if [ "$rc" -ne 0 ]; then
                     echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
                     for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
@@ -362,15 +375,28 @@ check-lobster-local:
                           batch_size: 2
                           steps:
                             - id: body
-                              run: printf '%s:%s\n' "\$ix" "\$it"
+                              run: printf '%s:%s\n' "\$ix.json" "\$it.json" | tee -a $d/each.marker
                         - id: collect
-                          run: printf '%s' "\$loop.json" > $d/each.marker
+                          run: cat > $d/loop.json
+                          stdin: \$loop.json
                   YAML
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run each > "$d/out" 2>"$d/err" || rc=1
-                  # source: batch.go:212-216 — batch_size is a scheduling hint; iteration order is the array's
+                  # source: batch.go:202-203 — `item_var`/`index_var` are installed as SCOPED
+                  # STEP RESULTS (createSyntheticStepResult), i.e. they are REFS, never shell
+                  # env vars. A bare `$it` is not a `$id.path` (refs.go:31 stepRefInline needs
+                  # the dot), so it survives into the shell as literal text; the loop variables
+                  # must be spelled `$it.json` / `$ix.json` (or `.stdout`) to resolve at all.
+                  [ "$(cat "$d/each.marker" 2>/dev/null)" = "$(printf '0:1\n1:2\n2:3\n3:4\n4:5')" ] || rc=1
+                  # source: batch.go:212-216 — batch_size is a scheduling hint; iteration ORDER
+                  # is the array's, so 5 items with batch_size 2 still yield 5 ordered results.
                   [ "$(wc -l < "$d/each.marker" 2>/dev/null)" = "5" ] || rc=1
-                  grep -q '4:5' "$d/each.marker" || rc=1
+                  # source: batch.go:218 — the loop's own value is its ARRAY of iteration
+                  # results; `stdin:` hands it over whole (refs.go:193-205 encodeShellInput:
+                  # a STRING ref is written verbatim, anything else is `json.Marshal`ed —
+                  # here the array, so the compact JSON below), never spliced into a quoted
+                  # shell string, which is what used to strip its quotes.
+                  [ "$(cat "$d/loop.json" 2>/dev/null)" = '["0:1\n","1:2\n","2:3\n","3:4\n","4:5\n"]' ] || rc=1
                   if [ "$rc" -ne 0 ]; then
                     echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
                     for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
@@ -550,7 +576,7 @@ check-lobster-local:
                               required:
                                 - branch
                         - id: finish
-                          run: printf '%s' "\$ask.json.branch" > $d/answered.marker
+                          run: printf '%s' "\$ask.response.branch" > $d/answered.marker
                   ask-bad:
                     pipeline:
                       description: a type-invalid input response
@@ -580,7 +606,11 @@ check-lobster-local:
                   grep -q 'responseSchema:' "$d/.opencharly/pipelines/ask/workflow.lobster" || rc=1
                   # source: engine.go:732/735 'Workflow resume requires --response-json for input requests'
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline resume ask --response-json '{"branch":"feature/x"}' >> "$d/out" 2>>"$d/err" || rc=1
-                  # refs.go — the recorded response resolves as $ask.json.branch
+                  # source: engine.go:768-769 applyResume — a RESUMED input answer is recorded
+                  # as `Response` (+ HasResp), NEVER as `JSON`, so the ref that resolves it is
+                  # `$ask.response.<path>`; the authoritative spelling is pinned in
+                  # engine_test.go:556 (`$ask.response.decision`). A `$ask.json.*` ref would
+                  # walk a field this path never sets and render empty.
                   [ "$(cat "$d/answered.marker" 2>/dev/null)" = "feature/x" ] || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run ask-bad >> "$d/out" 2>>"$d/err" || rc=1
                   # a schema-INVALID response is refused (gate.go:442-453 validateInputResponse →
@@ -615,7 +645,8 @@ check-lobster-local:
                         - id: shape
                           pipeline: exec echo '[{"n":3,"v":2},{"n":1,"v":5}]' | where .v >= 2 | sort .n | pick n
                         - id: collect
-                          run: printf '%s' "\$shape.stdout" > $d/stdlib.marker
+                          run: cat > $d/stdlib.marker
+                          stdin: \$shape.stdout
                   stdlib-ext:
                     pipeline:
                       description: an external stage is refused
@@ -627,6 +658,13 @@ check-lobster-local:
                   YAML
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run stdlib > "$d/out" 2>"$d/err" || rc=1
+                  # source: pipeline.go:124-125 — when the LAST stage renders no text of its
+                  # own (`where`/`sort`/`pick`), the step's stdout IS renderItemsJSON(items);
+                  # source: pipeline.go:607-608 renderItemsJSON = json.MarshalIndent — so the
+                  # value is STRICT JSON, and the collect step above hands it over through
+                  # `stdin:` (refs.go:191-203 encodeShellInput writes a string ref VERBATIM).
+                  # Splicing it into a quoted shell string instead would let the shell strip
+                  # its quotes, which is what this fixture used to do.
                   # source: pipeline.go:72-77 internalStages (exec/where/sort/pick) + 289-315 stagePick
                   grep -q '"n"' "$d/stdlib.marker" || rc=1
                   grep -q '"v"' "$d/stdlib.marker" && rc=1
@@ -672,7 +710,11 @@ check-lobster-local:
                   mkdir -p candy/y
                   { printf 'nightly:\n  pipeline:\n'; sed 's/^/    /' "$d/imported.yml"; } > candy/y/charly.yml
                   # source: plugin-pipeline cli.go:61 'pipeline %s: valid (%d steps)'
+                  # The step's own `stdout:` matcher is asserted on THIS step's stream, so the
+                  # captured text is echoed back after it is captured: the assertion below and
+                  # the matcher then read the same bytes.
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline validate nightly > "$d/out" 2>>"$d/err" || rc=1
+                  cat "$d/out"
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run >> "$d/out" 2>>"$d/err" || rc=1
                   # source: cli.go:162-193 cliExport — writes the lowered pair and prints each path
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export nightly "$d/exported" > "$d/exp.out" 2>>"$d/err" || rc=1
@@ -701,6 +743,10 @@ check-lobster-local:
                 command: |-
                   d=$(mktemp -d); cd "$d"; mkdir -p candy/x
                   printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  # source: cli.go:188-205 cliExport — it COUNTS what it actually copied and
+                  # refuses by name (exit 1) when the count is zero, because a pipeline that was
+                  # never run has no lowered pair to export and a silent exit 0 would report a
+                  # successful export of nothing.
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export definitely-not-a-pipeline
                   rc=$?
                   if [ "$rc" -ne 0 ]; then
