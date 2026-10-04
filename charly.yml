@@ -830,7 +830,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
@@ -869,7 +874,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
@@ -905,7 +915,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
@@ -939,7 +954,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   m="$d/state/schedule/nightly.last"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
@@ -978,7 +998,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run every-minute --dry-run > "$d/out" 2>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply every-minute >> "$d/out" 2>>"$d/err" || rc=1
@@ -1012,7 +1037,12 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
-                  u="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+                  # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
+                  # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
+                  # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
+                  # UNRESOLVABLE ref and the whole step SKIPS rather than running. Brace-free $X is
+                  # invisible to that regex; the order below matches schedule.go:341-350.
+                  u="$HOME/.config"; if [ -n "$XDG_CONFIG_HOME" ]; then u="$XDG_CONFIG_HOME"; fi; u="$u/systemd/user"
                   rc=0
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run nightly --dry-run > "$d/out" 2>"$d/err" || rc=1
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline schedule apply nightly >> "$d/out" 2>>"$d/err" || rc=1
