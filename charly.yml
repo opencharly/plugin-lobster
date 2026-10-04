@@ -506,10 +506,13 @@ check-lobster-local:
                           run: printf 'RAN' > $d/absent.marker
                   YAML
                   rc=0
-                  # `--mode tool` is REQUIRED: the engine's gate is interactive when stdin is a
-                  # character device (a terminal, and also /dev/null — a check runner's usual
-                  # stdin), which would prompt on the terminal instead of saving the gate. The
-                  # wire path a resume answers is by definition non-interactive.
+                  # `--mode tool` is REQUIRED here for the ENVELOPE, not for the terminal: this
+                  # step asserts on the tool-mode reply (`status=error` / `status=cancelled`
+                  # below), which human mode renders as prose instead. It is NOT what keeps the
+                  # gate off the terminal — `interactive` is `mode != "tool" && stdinIsTTY()`
+                  # (run.go:60), and `stdinIsTTY` is isatty(0) (tty.go), so a runner's /dev/null
+                  # stdin is correctly not a human; `tty_test.go`'s TestIsTerminalRejectsDevNull
+                  # pins exactly that.
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run gate --mode tool > "$d/out" 2>"$d/err" || rc=1
                   # the gate halted the run: nothing after the approval step has run yet
                   test ! -e "$d/approved.marker" || rc=1
@@ -797,6 +800,23 @@ check-lobster-schedule-app:
 # The driver (`charly pipeline schedule apply|list|run-now|remove`) is the W6 front-end
 # face (see the file header); the OPS it names are the engine's own
 # `workflow-schedule` ops (schedule.go:53-63).
+#
+# TWO requirements every step below carries, both measured on the run at
+# `.check/check-lobster-schedule-local/2026.277.1733`:
+#
+#  1. `export CHARLY_BIN="${CHARLY_BIN}"`. `${CHARLY_BIN}` is a check-variable EXPANSION
+#     (sdk/kit/checkvars_charlybin.go stamps the resolver's Env) — it is NOT exported into
+#     the step's process environment. So `charly pipeline schedule apply`, a child process,
+#     never saw it, and resolveCharlyBin (run.go:295) fell through to
+#     exec.LookPath("charly") -> /usr/bin/charly, the INSTALLED binary. The generated
+#     .service then exec'd an installed charly that knows no `kind:pipeline`, so its run
+#     died with `pipeline entity "nightly" not found` and no marker was ever written. The
+#     export is what makes the unit exec the binary UNDER TEST — without it this bed
+#     witnesses nothing.
+#
+#  2. `timeout:` on any step whose worst case passes the never-hang ceiling (~120s).
+#     `schedule-fires` polls `while [ "$i" -lt 150 ]`; with no `timeout:` the probe was
+#     killed at 2m0.171s — "probe killed by never-hang ceiling" — and the bed failed.
 check-lobster-schedule-local:
     local:
         from: check-lobster-schedule-app
@@ -830,6 +850,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
@@ -874,6 +895,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
@@ -915,6 +937,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
@@ -937,6 +960,7 @@ check-lobster-schedule-local:
               id: schedule-run-now
               context:
                 - runtime
+              timeout: 300s
               exit_status: 0
               command:
                 command: |-
@@ -954,6 +978,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
@@ -981,6 +1006,7 @@ check-lobster-schedule-local:
               id: schedule-fires
               context:
                 - runtime
+              timeout: 300s
               exit_status: 0
               command:
                 command: |-
@@ -998,6 +1024,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an
@@ -1037,6 +1064,7 @@ check-lobster-schedule-local:
                           run: printf 'FIRED' > $d/fired.marker
                   YAML
                   export LOBSTER_STATE_DIR="$d/state"
+                  export CHARLY_BIN="${CHARLY_BIN}"   # the UNIT must exec the binary UNDER TEST, not PATH's — see the bed header
                   # NOT a braced shell default (XDG_CONFIG_HOME, colon-dash, HOME/.config): the
                   # check-variable grammar reads a brace-dollar UPPERCASE name — optionally with an
                   # arg — as an env-map key (sdk/kit/checkvars_expand.go:17), so a shell default is an

@@ -51,8 +51,6 @@ type stepResult struct {
 	ErrorMessage string
 	ExitCode     int
 	Stderr       string
-	Attempts     int64
-	DurationMs   int64
 }
 
 // envelope renders the step's ref root as the JSON document `workflowkit.Eval` walks with

@@ -178,10 +178,6 @@ func (st *runState) runForEach(ctx context.Context, step *params.LobsterStep, en
 	if indexVar == "" {
 		indexVar = "index"
 	}
-	batchSize := int(step.Batch_size)
-	if batchSize < 1 {
-		batchSize = 1
-	}
 	pause := time.Duration(0)
 	if f, ok := toFloat(step.Pause_ms); ok && f > 0 {
 		pause = time.Duration(f) * time.Millisecond
@@ -209,11 +205,11 @@ func (st *runState) runForEach(ctx context.Context, step *params.LobsterStep, en
 		outputs = append(outputs, out)
 	}
 
-	// batch_size is a scheduling hint (how many iterations a caller may run at once);
-	// this engine runs them in order, so the observable result is identical and the
-	// ordering guarantee is stronger. It is validated, never silently ignored — see the
-	// loader, which rejects a batch_size below 1.
-	_ = batchSize
+	// `batch_size` is a scheduling hint (how many iterations a caller may run at once). This
+	// engine runs the items in order, which yields the identical observable result with a
+	// stronger ordering guarantee, so the hint is accepted and validated — the loader
+	// rejects a `batch_size` below 1 (`lobster.go`) — and deliberately not used to pace the
+	// loop. The steps assert the ordering, not the hint.
 
 	return &stepResult{ID: step.Id, JSON: outputs, HasJSON: true}, nil
 }

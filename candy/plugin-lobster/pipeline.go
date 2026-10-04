@@ -617,8 +617,6 @@ func renderTable(items []any) string {
 		return ""
 	}
 	rows := make([][]string, 0, len(items))
-	cols := []string{}
-	seen := map[string]bool{}
 	for _, it := range items {
 		obj, ok := it.(map[string]any)
 		if !ok {
@@ -632,10 +630,6 @@ func renderTable(items []any) string {
 		sort.Strings(keys)
 		row := make([]string, 0, len(keys))
 		for _, k := range keys {
-			if !seen[k] {
-				seen[k] = true
-				cols = append(cols, k)
-			}
 			row = append(row, renderTemplateValue(obj[k]))
 		}
 		rows = append(rows, row)
@@ -647,7 +641,6 @@ func renderTable(items []any) string {
 		}
 		b.WriteString(strings.Join(r, "\t"))
 	}
-	_ = cols
 	return b.String()
 }
 

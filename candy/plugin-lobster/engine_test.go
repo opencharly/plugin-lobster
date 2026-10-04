@@ -720,6 +720,10 @@ func TestLoaderRejectsBrokenWorkflows(t *testing.T) {
 		"input with run": "steps:\n  - id: a\n    input: {prompt: 'p', responseSchema: {type: object}}\n    run: 'echo x'\n",
 		"blank workflow": "steps:\n  - id: a\n    workflow: '  '\n",
 		"bad on_error":   "steps:\n  - id: a\n    run: 'echo x'\n    on_error: explode\n",
+		// A branch is an exec arm; a gate key on it would be silently dropped by runBranch,
+		// so the run would sail past a gate the author declared. Rejected by name instead.
+		"approval on a parallel branch": "steps:\n  - id: p\n    parallel:\n      branches:\n        - id: b\n          run: 'echo x'\n          approval: true\n",
+		"input on a parallel branch":    "steps:\n  - id: p\n    parallel:\n      branches:\n        - id: b\n          run: 'echo x'\n          input: {prompt: 'p', responseSchema: {type: object}}\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -440,6 +440,16 @@ func validateParallel(stepID string, par map[string]any, seen map[string]bool) e
 				return fmt.Errorf("Workflow step %s parallel branch %s pipeline must be a string", stepID, bid)
 			}
 		}
+		// A branch is an EXEC ARM: `run`/`command`/`pipeline` only. `runBranch` builds its
+		// LobsterStep from those three and carries no Approval/Input field, so a gate key on a
+		// branch would be silently DROPPED — the run would proceed past a gate the author
+		// declared. Reject it by name, exactly as validateForEach does for the loop case.
+		if isApprovalStep(branch["approval"]) {
+			return fmt.Errorf("Workflow step %s parallel branch %s cannot define approval (use a separate step after the parallel block)", stepID, bid)
+		}
+		if isInputStep(branch["input"]) {
+			return fmt.Errorf("Workflow step %s parallel branch %s cannot define input (use a separate step after the parallel block)", stepID, bid)
+		}
 	}
 	return nil
 }

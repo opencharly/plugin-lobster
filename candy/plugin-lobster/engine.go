@@ -376,7 +376,7 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 			cwd = resolved
 		}
 
-		exec, result, branchResults, err := st.executeStep(ctx, step, env, cwd)
+		result, branchResults, err := st.executeStep(ctx, step, env, cwd)
 		if err != nil {
 			// `on_error` decides whether a failure ends the run. A cancelled run never gets here:
 			// cancellation travels as a context error, checked above and re-checked by the caller.
@@ -421,7 +421,6 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 			}
 			continue
 		}
-		_ = exec
 
 		// Parallel branch results become top-level refs, exactly as upstream makes them.
 		for branchID, br := range branchResults {
@@ -511,12 +510,12 @@ func (st *runState) redoBackEdge(step *params.LobsterStep, trigger string) (targ
 	return j, true, nil
 }
 
-// executeStep runs one step's exec arm with the retry policy applied. The returned kind
-// is for diagnostics only (a for_each step reports kindNone).
-func (st *runState) executeStep(ctx context.Context, step *params.LobsterStep, env map[string]string, cwd string) (stepKind, *stepResult, map[string]*stepResult, error) {
+// executeStep runs one step's exec arm with the retry policy applied. A for_each step is
+// dispatched to runForEach and takes no exec arm of its own.
+func (st *runState) executeStep(ctx context.Context, step *params.LobsterStep, env map[string]string, cwd string) (*stepResult, map[string]*stepResult, error) {
 	if step.For_each != "" && len(step.Steps) > 0 {
 		res, err := st.runForEach(ctx, step, env, cwd)
-		return kindNone, res, nil, err
+		return res, nil, err
 	}
 
 	kind, value := getStepExecution(step)
@@ -536,12 +535,12 @@ func (st *runState) executeStep(ctx context.Context, step *params.LobsterStep, e
 			return retryable(err, ctx)
 		})
 		if err != nil {
-			return kind, nil, nil, err
+			return nil, nil, err
 		}
 	} else if err := attempt(); err != nil {
-		return kind, nil, nil, err
+		return nil, nil, err
 	}
-	return kind, result, branchResults, nil
+	return result, branchResults, nil
 }
 
 // attemptStep is ONE attempt: the timeout envelope around one exec arm.
@@ -566,9 +565,8 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 		if err != nil {
 			return nil, nil, err
 		}
-		started := time.Now()
 		stdout, stderr, code, err := st.eng.shell.Run(runCtx, command, encodeShellInput(stdinVal), env, cwd, timeout)
-		res := &stepResult{ID: step.Id, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMs: time.Since(started).Milliseconds()}
+		res := &stepResult{ID: step.Id, Stdout: stdout, Stderr: stderr, ExitCode: code}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -601,12 +599,11 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 		if err != nil {
 			return nil, nil, err
 		}
-		started := time.Now()
 		items, rendered, err := runPipelineStep(runCtx, st.eng.reg, text, inputValue, env, cwd, st.eng.charlyBin, st.eng.stdout, st.eng.stderr)
 		if err != nil {
 			return nil, nil, err
 		}
-		res := &stepResult{ID: step.Id, Stdout: rendered, DurationMs: time.Since(started).Milliseconds()}
+		res := &stepResult{ID: step.Id, Stdout: rendered}
 		res.JSON, res.HasJSON = parseJSON(rendered)
 		if !res.HasJSON && len(items) > 0 {
 			res.JSON, res.HasJSON = items, true
