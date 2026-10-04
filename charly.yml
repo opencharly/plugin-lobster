@@ -551,7 +551,7 @@ check-lobster-local:
                   fi
                   cd /; exit $rc
                 in_container: false
-            - check: 'an `input:` step carrying a `response_schema` gate halts the run with `needs_input`; a schema-valid `--response-json` resume completes it and `$id.json` resolves the answer, while a type-invalid response is refused so the run never advances'
+            - check: 'an `input:` step carrying a `response_schema` gate halts the run with `needs_input`; a schema-valid `--response-json` resume completes it and `$id.response` resolves the answer, while a type-invalid response is refused so the run never advances'
               id: lobster-input-resume
               context:
                 - runtime
