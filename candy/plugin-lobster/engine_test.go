@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/opencharly/plugin-lobster/candy/plugin-lobster/params"
+	"github.com/opencharly/spec/spec"
 )
 
 // testEngine builds an engine whose state lives in the test's own temp dir, so a test can
@@ -347,6 +348,120 @@ steps:
 	if cancelled.Status != "cancelled" {
 		t.Fatalf("declined status = %q, want cancelled", cancelled.Status)
 	}
+}
+
+// TestApprovalGateResumeWithoutADecisionIsRefusedNotCancelled drives the REAL resume entry
+// (`resumeWorkflow`, the same one the `workflow:lobster` op binds, reached host-side as
+// OpWorkflowResume) through all three states of the wire tri-state `approve *bool`, plus the
+// separate ABORT arm. The load-bearing case is the ABSENT one.
+//
+// The wire carries three DIFFERENT values, and the engine must not collapse them:
+//
+//	approve: true   → an approval      → the run proceeds past the gate
+//	approve: false  → a REJECTION      → the run is cancelled
+//	approve absent  → NO ANSWER at all → REFUSED BY NAME, and the gate is left answerable
+//
+// The third case is why the field became a pointer. On the OLD engine the request carried a
+// plain `bool approve`, so a resume that named no decision arrived as the zero value `false`
+// — indistinguishable from an explicit rejection — and `resumeWorkflow`'s catch-all
+// `default:` arm assigned it straight to `state.Approved`. The gate was then read as a
+// rejection: the pending state was DELETED and the run reported "cancelled". An absent answer
+// silently destroyed a gate nobody had answered. After the change a decision-less request
+// falls through the switch untouched, and `applyResume` refuses it by name BEFORE the state
+// is touched, so the SAME token still carries a live gate for a later, real answer.
+//
+// Sub-assertion 3 also pins the survival: the refusal must not consume the token, so a
+// follow-up `approve: true` on that same token must complete the run. A fix that refused by
+// name but had already burned the state would pass the message check and still lose the gate.
+func TestApprovalGateResumeWithoutADecisionIsRefusedNotCancelled(t *testing.T) {
+	// `resumeWorkflow` builds its OWN engine from the PROCESS environment, so the state dir the
+	// pause writes into must be visible to it — the engine helper alone is not enough.
+	stateDir := t.TempDir()
+	t.Setenv("LOBSTER_STATE_DIR", stateDir)
+	eng, _, _ := testEngine(t, map[string]string{"LOBSTER_STATE_DIR": stateDir})
+	path := writeWorkflow(t, `
+steps:
+  - id: prepare
+    run: 'echo "ready"'
+  - id: sign
+    approval: "Ship it?"
+    run: 'echo shipped'
+  - id: finish
+    run: 'echo done'
+`)
+
+	ctx := context.Background()
+
+	// pause runs the workflow up to the gate and returns the resume token a caller would
+	// answer. Each subtest gets its OWN pause: answering consumes the state, so a shared
+	// token would make later subtests read a state an earlier one retired.
+	pause := func(t *testing.T) string {
+		t.Helper()
+		res, err := eng.runFile(ctx, path, nil, nil)
+		if err != nil {
+			t.Fatalf("pause run: %v", err)
+		}
+		if res.Status != "needs_approval" {
+			t.Fatalf("pause run status = %q, want needs_approval", res.Status)
+		}
+		if res.RequiresApproval == nil || res.RequiresApproval.ResumeToken == "" {
+			t.Fatal("a paused gate must carry a resume token")
+		}
+		return res.RequiresApproval.ResumeToken
+	}
+	resume := func(t *testing.T, req spec.WorkflowResumeRequest) *spec.WorkflowRunReply {
+		t.Helper()
+		reply, err := resumeWorkflow(ctx, nil, req)
+		if err != nil {
+			t.Fatalf("resume %+v: transport error %v (the engine's own refusal must come back as a recorded reply, not an error)", req, err)
+		}
+		return reply
+	}
+
+	t.Run("approve=true proceeds past the gate", func(t *testing.T) {
+		reply := resume(t, spec.WorkflowResumeRequest{Pipeline: "gate", Token: pause(t), Approve: boolPtr(true)})
+		if reply.Status != "ok" {
+			t.Fatalf("status = %q, want ok (an explicit approval must advance the run)", reply.Status)
+		}
+		if reply.Output != "done" {
+			t.Fatalf("output = %q, want done (the step AFTER the gate must run)", reply.Output)
+		}
+	})
+
+	t.Run("approve=false cancels", func(t *testing.T) {
+		reply := resume(t, spec.WorkflowResumeRequest{Pipeline: "gate", Token: pause(t), Approve: boolPtr(false)})
+		if reply.Status != "cancelled" {
+			t.Fatalf("status = %q, want cancelled (an explicit REJECTION cancels the run)", reply.Status)
+		}
+	})
+
+	t.Run("approve absent is refused by name and the gate survives", func(t *testing.T) {
+		token := pause(t)
+		reply := resume(t, spec.WorkflowResumeRequest{Pipeline: "gate", Token: token})
+		const wantErr = "Workflow resume requires --approve yes|no for approval requests"
+		if reply.Status != "error" {
+			t.Fatalf("status = %q, want error — a request carrying NO decision was read as one (the old engine's catch-all default turned silence into a rejection)", reply.Status)
+		}
+		if !strings.Contains(reply.Error, wantErr) {
+			t.Fatalf("error = %q, want it to name the refusal %q", reply.Error, wantErr)
+		}
+
+		// The refusal must return BEFORE the state is consumed: the same token must still gate.
+		after := resume(t, spec.WorkflowResumeRequest{Pipeline: "gate", Token: token, Approve: boolPtr(true)})
+		if after.Status != "ok" {
+			t.Fatalf("follow-up approve=true status = %q (error %q), want ok — the decision-less resume must not have destroyed the pending gate", after.Status, after.Error)
+		}
+		if after.Output != "done" {
+			t.Fatalf("follow-up output = %q, want done", after.Output)
+		}
+	})
+
+	t.Run("cancel=true cancels", func(t *testing.T) {
+		reply := resume(t, spec.WorkflowResumeRequest{Pipeline: "gate", Token: pause(t), Cancel: true})
+		if reply.Status != "cancelled" {
+			t.Fatalf("status = %q, want cancelled (an ABORT is a different arm from a rejection, and both cancel)", reply.Status)
+		}
+	})
 }
 
 func TestApprovalIdentityPolicy(t *testing.T) {
