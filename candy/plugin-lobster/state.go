@@ -82,17 +82,15 @@ func decodeToken(token string) (resumeTokenPayload, error) {
 // resumeState is upstream's WorkflowResumeState plus the decision fields the wire
 // request contributes (never persisted).
 type resumeState struct {
-	FilePath           string                 `json:"filePath"`
-	ResumeAtIndex      int64                  `json:"resumeAtIndex"`
-	Steps              map[string]*stepResult `json:"steps"`
-	Args               map[string]any         `json:"args"`
-	ApprovalStepID     string                 `json:"approvalStepId,omitempty"`
-	ApprovalIdentity   *approvalIdentity      `json:"approvalIdentity,omitempty"`
-	InputStepID        string                 `json:"inputStepId,omitempty"`
-	InputKind          string                 `json:"inputKind,omitempty"`
-	InputSchema        map[string]any         `json:"inputSchema,omitempty"`
-	InputSubject       any                    `json:"inputSubject,omitempty"`
-	SupersededStateKey []string               `json:"supersededResumeStateKeys,omitempty"`
+	FilePath         string                 `json:"filePath"`
+	ResumeAtIndex    int64                  `json:"resumeAtIndex"`
+	Steps            map[string]*stepResult `json:"steps"`
+	Args             map[string]any         `json:"args"`
+	ApprovalStepID   string                 `json:"approvalStepId,omitempty"`
+	ApprovalIdentity *approvalIdentity      `json:"approvalIdentity,omitempty"`
+	InputStepID      string                 `json:"inputStepId,omitempty"`
+	InputSchema      map[string]any         `json:"inputSchema,omitempty"`
+	InputSubject     any                    `json:"inputSubject,omitempty"`
 	// RedoCount is this plugin's OWN state (never spec wire): the per-target redo budget at
 	// the moment the run paused, so a resume cannot reset the LOOP-GUARD. Optional and
 	// omitempty — a state file that predates the field loads with a nil map, treated as an
