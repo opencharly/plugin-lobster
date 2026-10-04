@@ -2,9 +2,9 @@
 # the CUE schema gate applies (`charly box validate`). It also declares the two R10
 # witness beds (below): the engine-semantics bed and the systemd-timer bed.
 #
-# ── THE TWO BEDS, AND THEIR STATE TODAY ─────────────────────────────────────
-# Until this commit the repo carried `discover:` and NOTHING else, so the lobster leg
-# had no R10 witness at all. These are that witness.
+# ── THE TWO BEDS, AND THEIR MEASURED STATE ──────────────────────────────────
+# Until the module commit the repo carried `discover:` and NOTHING else, so the lobster
+# leg had no R10 witness at all. These are that witness.
 #
 #   check-lobster-local          — the ENGINE-semantics witness: refs/`when`, args/env,
 #                                  retry + `on_error`, timeout, parallel, for_each,
@@ -14,45 +14,43 @@
 #   check-lobster-schedule-local — the SYSTEMD-TIMER witness: apply, idempotency, list,
 #                                  run-now, a real timer fire, and full teardown.
 #
-# UNRUN: both are authored, NOT yet executed on any host, and NOT validatable today.
-# Two independent gates block them:
+# MEASURED STATE (2026-10-04, on the module head `e29a519`): BOTH BEDS RAN AND PASSED —
+# `check-lobster-local` 13/13 steps, `ok: true`; `check-lobster-schedule-local` 6/6
+# steps, `ok: true`. And `charly box validate` at this repo root now PASSES:
+# `OK — checked 3 candies, 2 deploys, 7 distros, 7 builders; 0 warnings, 0 errors`.
+# The two gates that made an earlier revision of this header say "UNRUN" are closed:
 #
-#   1. `charly box validate` at this repo root FAILS on this repo's own candy and always
-#      has: `candy/plugin-lobster/charly.yml: plugin capability "workflow:lobster" is
-#      malformed (want <class>:<word>)`. The word is NOT malformed — the `workflow`
-#      PROVIDER CLASS is not in the pinned `spec`, and it lands only with the wave's
-#      spec leg, gated on opencharly/charly#762. So neither bed can be assembled before
-#      that lands.
+#   1. `charly box validate` used to FAIL here with `plugin capability "workflow:lobster"
+#      is malformed (want <class>:<word>)`. The word was never malformed — the `workflow`
+#      PROVIDER CLASS was absent from the pinned `spec`, and it enters that set only at
+#      spec `v0.2026276.0`. opencharly/charly#778 adopted it (MERGED) and charly
+#      `v2026.277.0930` carries it, so the rejection no longer reproduces.
 #   2. This plugin is OUT-OF-PROCESS (it is not in charly's `compiled_plugins:`), so the
 #      `${CHARLY_BIN}` a bed runs must have BOTH faces present — the engine
-#      (`workflow:lobster`) AND the front-end (`command:pipeline`) — supplied either by a
-#      `CHARLY_PLUGIN_DIR` holding the freshly built plugin binaries, or by a wave build
-#      with both compiled in. The compiled-in dev-tree override gap is owned by
-#      opencharly/charly#775; it is referenced here, not re-solved.
+#      (`workflow:lobster`) AND the front-end (`command:pipeline`). The compiled-in
+#      dev-tree override is owned by opencharly/charly#775 (issue, still OPEN), and its
+#      fix — `scripts/bootstrap-charly.sh --dev-plugin <candy>=<checkout>` — is
+#      opencharly/charly#788 (MERGED, released in `v2026.277.1528`). The two runs above
+#      were made with a build of exactly that route.
 #
-# `plugin-pipeline` (the front-end these beds drive) carries NO release tag yet, and
-# `#CandyRef` has no local-path form, so it is deliberately NOT composed by a
-# `@github…` ref below: it is supplied by the assembly mechanism above (Standard 8).
-# Composing it by an unresolvable pin would make the bed unbuildable rather than strict.
-#
-# WHAT IS REACHABLE TODAY (measured, and worth knowing when this bed first runs):
-# the `command:lobster` FACE registers — `charly lobster import|export|doctor` work
-# today. The ENGINE face (`workflow:lobster`) does not: `discoverBakedPluginWords` skips
-# it (charly/plugin_lobster.go:554, the plugin-capability class gap above), so every
-# engine step here is UNRUN until #762.
+# `plugin-pipeline` (the front-end these beds drive) carries NO release tag for the legs
+# these beds use, and `#CandyRef` has no local-path form, so it is deliberately NOT
+# composed by a `@github…` ref below: it is supplied by the host assembly above. Composing
+# it by an unresolvable pin would make the bed unbuildable rather than strict.
 #
 # ── DRIVER SURFACES: WHAT IS IN THE TREE, AND WHAT IS PLANNED ───────────────
 # The rule for this bed is that every asserted string and every flag is quoted from the
 # implementation (each assertion below carries its `source:` citation). Two driver
-# surfaces are NOT in this tree yet and are called out here rather than hidden:
+# surfaces are NOT in plugin-pipeline's released tree yet and are called out here rather
+# than hidden — the host assembly above is what supplies them today:
 #
-#   * `charly pipeline resume …`   — plugin-pipeline's CLI today serves only
+#   * `charly pipeline resume …`   — plugin-pipeline's released CLI serves only
 #     `run|validate|agent|probe` (plugin-pipeline/candy/plugin-pipeline/cli.go:35-46). The
-#     wave's W6 decision ADDS `run|resume|schedule` (plan/workflow-ir/LEDGER.md, cont. 33
-#     §B), and plugin-lobster's `command:lobster` gains the same three subcommands. The
-#     resume FLAGS (`--approve yes|no`, `--response-json`) are already the engine's own
-#     wired surface (candy/plugin-lobster/engine.go:690/693/732/735); only the CLI face
-#     is pending.
+#     wave's W6 decision ADDS `run|resume|schedule`, and plugin-lobster's `command:lobster`
+#     gains the same three subcommands. The resume FLAGS (`--approve yes|no`,
+#     `--response-json`) are already the engine's own wired surface
+#     (candy/plugin-lobster/engine.go:690/693/732/735); only the CLI face is pending, and
+#     `lobster-approval-resume` / `lobster-input-resume` drive it.
 #   * `charly pipeline schedule …` — likewise: the `workflow-schedule` ops
 #     `apply|list|remove|run-now` ARE implemented (candy/plugin-lobster/schedule.go:53-63)
 #     and reached only via `InvokeProvider("workflow", "lobster", workflow-schedule)`;
