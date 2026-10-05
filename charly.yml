@@ -774,14 +774,18 @@ check-lobster-local:
                   # successful export of nothing.
                   CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} lobster export definitely-not-a-pipeline
                   rc=$?
-                  if [ "$rc" -ne 0 ]; then
-                    echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
-                    for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
-                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
-                    done
-                  else
-                    rm -rf "$d"
+                  # `exit_status: 1` makes a NON-ZERO exit the PASSING case for this step, so its
+                  # diagnostic is INVERTED relative to every other step in this bed. The [FAIL]
+                  # branch must fire on the UNEXPECTED outcome — a ZERO exit, i.e. an export of a
+                  # never-lowered pipeline that reported success — and the passing path must clean
+                  # up. Reusing the sibling steps' `if [ "$rc" -ne 0 ]` shape here would print a
+                  # false [FAIL] on every passing run and keep the scratch dir alive, so the step's
+                  # own output would contradict the verdict it carries.
+                  if [ "$rc" -eq 0 ]; then
+                    echo "[FAIL] rc=0 — exporting a pipeline that was never lowered SUCCEEDED; it must refuse by name and exit non-zero" >&2
+                    cd /; exit 2
                   fi
+                  rm -rf "$d"
                   cd /; exit $rc
                 in_container: false
             # ── A STEP THAT WAS HERE, AND WHY IT IS NOT ────────────────────────────

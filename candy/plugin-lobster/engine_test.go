@@ -38,7 +38,6 @@ func testEngine(t *testing.T, env map[string]string) (*engine, *bytes.Buffer, *b
 		env:       base,
 		cwd:       t.TempDir(),
 	})
-	eng.now = func() time.Time { return time.Unix(1700000000, 0).UTC() }
 	return eng, stdout, stderr
 }
 

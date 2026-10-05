@@ -147,8 +147,6 @@ type engine struct {
 	dryRun      bool
 	store       *stateStore
 	active      map[string]bool
-	// now is injectable so a test can pin the clock the state records use.
-	now func() time.Time
 }
 
 func newEngine(opts engineOptions) *engine {
@@ -164,7 +162,6 @@ func newEngine(opts engineOptions) *engine {
 		dryRun:      opts.dryRun,
 		store:       newStateStore(opts.env),
 		active:      map[string]bool{},
-		now:         time.Now,
 	}
 	if e.shell == nil {
 		e.shell = localShell{}
