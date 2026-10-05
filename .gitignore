@@ -1,3 +1,10 @@
 bin/
 # `charly migrate` writes per-step backups as <file>.bak.<unix-ts>; never commit them.
 *.bak.*
+
+# `charly check run <recipe>` writes its artifacts under <project>/.check/<recipe>/. This
+# repo's two R10 beds (charly.yml) run FROM ITS OWN ROOT — that is what makes it a project
+# — so a run leaves `.check/` here. Per-run generated state (the result files and the run's
+# logs), never version-controlled source: the same class, with the same rationale, that
+# charly's own .gitignore covers. Without this entry every bed run leaves an untracked tree.
+.check/

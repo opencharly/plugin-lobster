@@ -45,3 +45,8 @@ plugin-lobster:
               context:
                 - build
               command: "grep -q 'Class: \"workflow\", Word: \"lobster\"' plugin.go && grep -q 'Class: \"command\", Word: \"lobster\"' plugin.go && echo 'workflow:lobster + command:lobster declared'"
+            - check: the two declared capabilities are REACHABLE, not merely written down — a new plugin's default placement is external, so charly connects it by host-building ./cmd/serve, and that shim binds the candy's CliMain; a missing entrypoint leaves both faces declared and dead (this is the gate the declaration grep above cannot be, since it passes on the string alone)
+              id: lobster-entrypoint-reachable
+              context:
+                - build
+              command: "test -f cmd/serve/main.go && grep -q 'func CliMain(' cli.go && grep -q 'sdk.Main(' cmd/serve/main.go && echo 'cmd/serve/main.go present; CliMain exported and bound by sdk.Main'"

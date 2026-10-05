@@ -9,8 +9,9 @@ Canonical files:
 
 - `candy/plugin-lobster/plugin.go` — `NewProvider` / `NewMeta` (the two declared
   capabilities) and the op dispatch.
-- `candy/plugin-lobster/executor.go` — the native lobster executor (the moved
-  ledger + ref resolution + the step loop).
+- `candy/plugin-lobster/engine.go` — the native lobster engine (the step loop,
+  `on_error`/retry, the approval/input gates, the resume fold, and the redo back-edge).
+  Ref resolution is `refs.go`; the ledger is the run's `results` map.
 - `candy/plugin-lobster/batch.go` — `parallel` / `for_each` batching.
 - `candy/plugin-lobster/cli.go` — `charly lobster import|export|doctor`.
 - `candy/plugin-lobster/schema/lobster.cue` — the engine doc schema + `#LobsterFile`.

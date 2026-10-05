@@ -48,3 +48,19 @@ jobs:
       - name: go test
         working-directory: candy/plugin-lobster
         run: go test ./...
+
+      # The schema is the single source for params/cue_types_gen.go, so the committed
+      # generated file must be exactly what the schema reproduces. Same procedure as
+      # plugin-pipeline's job: splice the package clause onto the schema, generate, and
+      # diff (ignoring the generated header's package line).
+      - name: Install cue (pinned)
+        run: go install cuelang.org/go/cmd/cue@v0.16.1
+
+      - name: Generated params are reproducible (cue:gen)
+        run: |
+          rm -rf /tmp/cuegenpkg && mkdir -p /tmp/cuegenpkg
+          echo 'package params' > /tmp/cuegenpkg/lobster.cue
+          cat candy/plugin-lobster/schema/lobster.cue >> /tmp/cuegenpkg/lobster.cue
+          cd /tmp/cuegenpkg && cue exp gengotypes .
+          diff <(sed '1,1d' /tmp/cuegenpkg/cue_types_params_gen.go) \
+               <(sed '1,1d' "$GITHUB_WORKSPACE/candy/plugin-lobster/params/cue_types_gen.go")
