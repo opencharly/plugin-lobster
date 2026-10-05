@@ -28,31 +28,13 @@ import (
 // envelope blocks
 // ---------------------------------------------------------------------------
 
-// approvalRequest is upstream's WorkflowApprovalRequest (the needs_approval payload).
-// Its JSON names are upstream's camelCase, because the envelope is the wire contract.
-type approvalRequest struct {
-	Type                     string `json:"type"`
-	Prompt                   string `json:"prompt"`
-	Items                    []any  `json:"items"`
-	Preview                  string `json:"preview,omitempty"`
-	InitiatedBy              string `json:"initiatedBy,omitempty"`
-	RequiredApprover         string `json:"requiredApprover,omitempty"`
-	RequireDifferentApprover bool   `json:"requireDifferentApprover,omitempty"`
-	ResumeToken              string `json:"resumeToken,omitempty"`
-	ApprovalID               string `json:"approvalId,omitempty"`
-}
-
-// inputRequest is upstream's WorkflowInputRequest, plus StepID — the IR reply carries
-// the gate's STEP (`#WorkflowInputRequest.step`) while upstream's own envelope does not,
-// so the id rides along unexported and is projected at the reply boundary.
+// inputRequest is the needs_input block. It EMBEDS the CUE-sourced
+// params.LobsterInputRequest (upstream's own envelope) and adds ONLY StepID — the IR reply
+// carries the gate's STEP (`#WorkflowInputRequest.step`) while upstream's envelope does
+// not, so the id is the single engine-only field and is projected at the reply boundary.
 type inputRequest struct {
-	Type           string         `json:"type"`
-	StepID         string         `json:"-"`
-	Prompt         string         `json:"prompt"`
-	ResponseSchema map[string]any `json:"responseSchema"`
-	Defaults       any            `json:"defaults,omitempty"`
-	Subject        any            `json:"subject,omitempty"`
-	ResumeToken    string         `json:"resumeToken,omitempty"`
+	params.LobsterInputRequest
+	StepID string `json:"-"`
 }
 
 // The envelope size limits. Upstream keeps the FULL resolved subject in the resume state
@@ -103,7 +85,7 @@ func (st *runState) approvalGate(ctx context.Context, step *params.LobsterStep, 
 		}
 		approval.ResumeToken = encodeToken(stateKey)
 		if approvalID != "" {
-			approval.ApprovalID = approvalID
+			approval.ApprovalId = approvalID
 		}
 		return true, &runResult{Status: "needs_approval", Output: []any{}, RequiresApproval: &approval}, nil
 	}
@@ -123,7 +105,7 @@ func (st *runState) approvalGate(ctx context.Context, step *params.LobsterStep, 
 		return false, nil, err
 	}
 	t := true
-	st.results[step.Id].Approved = &t
+	st.results[step.Id].Approved, st.results[step.Id].HasApproved = t, true
 	if approvedBy != "" {
 		st.results[step.Id].ApprovedBy = approvedBy
 	}
@@ -133,7 +115,7 @@ func (st *runState) approvalGate(ctx context.Context, step *params.LobsterStep, 
 // extractApprovalRequest is upstream's `extractApprovalRequest`: the step's own JSON may
 // carry a `requiresApproval` block that REPLACES the config's prompt/items/preview, so a
 // step can compute what it is asking to approve.
-func extractApprovalRequest(step *params.LobsterStep, result *stepResult, env map[string]string) approvalRequest {
+func extractApprovalRequest(step *params.LobsterStep, result *stepResult, env map[string]string) params.LobsterApprovalRequest {
 	cfg := normalizeApprovalConfig(step.Approval)
 	identity := approvalIdentityFromConfig(cfg)
 	if identity.InitiatedBy == "" {
@@ -148,7 +130,7 @@ func extractApprovalRequest(step *params.LobsterStep, result *stepResult, env ma
 		}
 	}
 
-	req := approvalRequest{
+	req := params.LobsterApprovalRequest{
 		Type:                     "approval_request",
 		Prompt:                   cfg.Prompt,
 		Items:                    cfg.Items,
@@ -165,7 +147,7 @@ func extractApprovalRequest(step *params.LobsterStep, result *stepResult, env ma
 	}
 
 	if result != nil && result.HasJSON {
-		if obj, ok := result.JSON.(map[string]any); ok {
+		if obj, ok := result.Json.(map[string]any); ok {
 			if ra, ok := obj["requiresApproval"].(map[string]any); ok {
 				if s, ok := ra["prompt"].(string); ok && s != "" {
 					req.Prompt = s
@@ -197,7 +179,10 @@ func extractApprovalRequest(step *params.LobsterStep, result *stepResult, env ma
 	return req
 }
 
-// normalizedApproval is the object form's fields, whichever spelling carried them.
+// normalizedApproval is the engine's FLATTENED view of the `approval` object form: the
+// alias spellings collapsed to one field each. It is NOT a wire shape and is never
+// marshalled — the object's own Go view is params.LobsterApprovalObject, which normalize
+// decodes through; this is the intermediate the gate consumes.
 type normalizedApproval struct {
 	Prompt                   string
 	Items                    []any
@@ -217,35 +202,40 @@ func normalizeApprovalConfig(v any) normalizedApproval {
 		}
 		return normalizedApproval{Prompt: t}
 	case map[string]any:
-		out := normalizedApproval{}
-		if s, ok := t["prompt"].(string); ok {
-			out.Prompt = s
+		// The object form IS #LobsterApprovalObject, whose generated view carries BOTH the
+		// snake_case and camelCase spellings. Decoding through the generated type keeps the
+		// shape's Go view single-sourced instead of hand-reading its keys here.
+		raw, err := json.Marshal(t)
+		if err != nil {
+			return normalizedApproval{}
 		}
-		if items, ok := t["items"].([]any); ok {
-			out.Items = items
+		var obj params.LobsterApprovalObject
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return normalizedApproval{}
 		}
-		if s, ok := t["preview"].(string); ok {
-			out.Preview = s
+		return normalizedApproval{
+			Prompt:                   obj.Prompt,
+			Items:                    obj.Items,
+			Preview:                  obj.Preview,
+			InitiatedBy:              firstNonBlankString(obj.Initiated_by, obj.InitiatedBy),
+			RequiredApprover:         firstNonBlankString(obj.Required_approver, obj.RequiredApprover),
+			RequireDifferentApprover: firstBool(obj.Require_different_approver, obj.RequireDifferentApprover),
 		}
-		out.InitiatedBy = firstNonBlankString(t["initiated_by"], t["initiatedBy"])
-		out.RequiredApprover = firstNonBlankString(t["required_approver"], t["requiredApprover"])
-		out.RequireDifferentApprover = firstBool(t["require_different_approver"], t["requireDifferentApprover"])
-		return out
 	default:
 		return normalizedApproval{}
 	}
 }
 
-func approvalIdentityFromConfig(c normalizedApproval) *approvalIdentity {
-	return &approvalIdentity{
+func approvalIdentityFromConfig(c normalizedApproval) *params.LobsterApprovalIdentity {
+	return &params.LobsterApprovalIdentity{
 		InitiatedBy:              c.InitiatedBy,
 		RequiredApprover:         c.RequiredApprover,
 		RequireDifferentApprover: c.RequireDifferentApprover,
 	}
 }
 
-func approvalIdentityFromRequest(r approvalRequest) *approvalIdentity {
-	return &approvalIdentity{
+func approvalIdentityFromRequest(r params.LobsterApprovalRequest) *params.LobsterApprovalIdentity {
+	return &params.LobsterApprovalIdentity{
 		InitiatedBy:              r.InitiatedBy,
 		RequiredApprover:         r.RequiredApprover,
 		RequireDifferentApprover: r.RequireDifferentApprover,
@@ -254,10 +244,10 @@ func approvalIdentityFromRequest(r approvalRequest) *approvalIdentity {
 
 // enforceApprovalIdentity is upstream's rule, message for message: an approver is required
 // only when the gate names one or demands a different one, and the first failure wins.
-func enforceApprovalIdentity(stepID string, identity *approvalIdentity, approvedBy string) error {
+func enforceApprovalIdentity(stepID string, identity *params.LobsterApprovalIdentity, approvedBy string) error {
 	policy := identity
 	if policy == nil {
-		policy = &approvalIdentity{}
+		policy = &params.LobsterApprovalIdentity{}
 	}
 	approver := strings.TrimSpace(approvedBy)
 
@@ -321,7 +311,7 @@ func (st *runState) inputGate(ctx context.Context, step *params.LobsterStep, idx
 	if err := validateInputResponse(schemaMap(step.Input.ResponseSchema), parsed, step.Id); err != nil {
 		return false, nil, err
 	}
-	st.results[step.Id] = &stepResult{ID: step.Id, Subject: subject, HasSubject: true, Response: parsed, HasResp: true}
+	st.results[step.Id] = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Subject: subject, Response: parsed}, HasSubject: true, HasResp: true}
 	st.lastStepID = step.Id
 	return false, nil, nil
 }
@@ -340,7 +330,7 @@ func resolveInputSubject(step *params.LobsterStep, args map[string]any, rs resul
 		return nil, nil
 	}
 	if prev.HasJSON {
-		return prev.JSON, nil
+		return prev.Json, nil
 	}
 	if prev.HasResp {
 		return prev.Response, nil
@@ -354,7 +344,7 @@ func resolveInputSubject(step *params.LobsterStep, args map[string]any, rs resul
 // buildNeedsInputRequest assembles the envelope, degrading the subject in three steps as
 // upstream does, and refusing outright if even that does not fit.
 func buildNeedsInputRequest(stepID, prompt string, schema map[string]any, defaults any, subject any, maxBytes int) *inputRequest {
-	base := &inputRequest{Type: "input_request", Prompt: prompt, ResponseSchema: schema}
+	base := &inputRequest{LobsterInputRequest: params.LobsterInputRequest{Type: "input_request", Prompt: prompt, ResponseSchema: schema}}
 	if defaults != nil {
 		base.Defaults = defaults
 	}

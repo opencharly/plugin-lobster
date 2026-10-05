@@ -221,7 +221,7 @@ func runReply(result *runResult) *spec.WorkflowRunReply {
 		reply.RequiresInput = spec.WorkflowInputRequest{
 			Step:           i.StepID,
 			Prompt:         i.Prompt,
-			ResponseSchema: i.ResponseSchema,
+			ResponseSchema: schemaMap(i.ResponseSchema),
 			Defaults:       defaultsAsStrings(i.Defaults),
 		}
 	}

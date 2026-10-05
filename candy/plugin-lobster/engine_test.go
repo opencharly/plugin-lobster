@@ -83,6 +83,76 @@ steps:
 	}
 }
 
+// TestEvaluateWhenFallsBackToCondition pins the guard's two spellings. `when` is the field
+// the runner evaluates; when it is ABSENT (nil or a blank string) the legacy `condition`
+// spelling is used instead, so a step carrying only `condition:` is still guarded rather
+// than silently running. Neither set → the step is unguarded and runs.
+//
+// The unit table proves the CHOICE; the end-to-end cases prove the loader carries a bare
+// `condition:` through to the typed step, so the fallback is not dead code behind a
+// spelling the pipeline never produces.
+func TestEvaluateWhenFallsBackToCondition(t *testing.T) {
+	rs := results{"s": &stepResult{LobsterStepResult: params.LobsterStepResult{Id: "s", Json: map[string]any{"ok": true}}, HasJSON: true}}
+	cases := []struct {
+		name string
+		step *params.LobsterStep
+		want bool
+	}{
+		{"when set is used", &params.LobsterStep{When: "false"}, false},
+		{"when takes precedence over condition", &params.LobsterStep{When: "true", Condition: "false"}, true},
+		{"blank when falls back to condition", &params.LobsterStep{When: "  ", Condition: "false"}, false},
+		{"condition is used when when is absent", &params.LobsterStep{Condition: "$s.json.ok == true"}, true},
+		{"neither set is unguarded", &params.LobsterStep{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := evaluateWhen(tc.step, rs)
+			if err != nil {
+				t.Fatalf("evaluateWhen: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("evaluateWhen = %v; want %v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("a condition-only step is guarded end to end", func(t *testing.T) {
+		eng, _, _ := testEngine(t, nil)
+		path := writeWorkflow(t, `
+steps:
+  - id: produce
+    run: 'echo hello'
+  - id: guarded
+    condition: "false"
+    run: 'echo should-not-run'
+`)
+		res, err := eng.runFile(context.Background(), path, nil, nil)
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if len(res.Output) != 1 || res.Output[0] != "hello" {
+			t.Fatalf("output = %#v; want [hello] (the condition-guarded step must not run)", res.Output)
+		}
+	})
+
+	t.Run("a condition-only step runs when true", func(t *testing.T) {
+		eng, _, _ := testEngine(t, nil)
+		path := writeWorkflow(t, `
+steps:
+  - id: guarded
+    condition: "true"
+    run: 'echo ran'
+`)
+		res, err := eng.runFile(context.Background(), path, nil, nil)
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if len(res.Output) != 1 || res.Output[0] != "ran" {
+			t.Fatalf("output = %#v; want [ran]", res.Output)
+		}
+	})
+}
+
 func TestStepRefResolvesJSONPath(t *testing.T) {
 	eng, _, _ := testEngine(t, nil)
 	path := writeWorkflow(t, `

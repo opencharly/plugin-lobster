@@ -24,7 +24,7 @@ import (
 // costStep builds the stepResult a completed step returns when it emitted `_meta.cost`.
 func costStep(t *testing.T, body map[string]any) *stepResult {
 	t.Helper()
-	return &stepResult{ID: "s", JSON: body, HasJSON: true}
+	return &stepResult{LobsterStepResult: params.LobsterStepResult{Id: "s", Json: body}, HasJSON: true}
 }
 
 // TestCostTrackerRecordsWhatTheStepReported pins the happy path: model, both token
@@ -35,10 +35,16 @@ func TestCostTrackerRecordsWhatTheStepReported(t *testing.T) {
 	ct := newCostTracker(params.LobsterCostLimit{}, &stderr)
 
 	ct.track("first", costStep(t, map[string]any{"_meta": map[string]any{"cost": map[string]any{
-		"model":             "some-model",
 		"totalInputTokens":  float64(1200),
 		"totalOutputTokens": float64(300),
 		"estimatedCostUsd":  0.25,
+		"byStep": []any{map[string]any{
+			"stepId":       "first",
+			"model":        "some-model",
+			"inputTokens":  float64(1200),
+			"outputTokens": float64(300),
+			"costUsd":      0.25,
+		}},
 	}}}))
 	ct.track("second", costStep(t, map[string]any{"_meta": map[string]any{"cost": map[string]any{
 		"estimatedCostUsd": 0.5,
@@ -81,10 +87,10 @@ func TestCostTrackerIgnoresAStepWithoutACostBlock(t *testing.T) {
 		r    *stepResult
 	}{
 		{"nil result", nil},
-		{"no JSON at all", &stepResult{ID: "s"}},
-		{"JSON that is a list, not an object", &stepResult{ID: "s", JSON: []any{1, 2}, HasJSON: true}},
+		{"no JSON at all", &stepResult{LobsterStepResult: params.LobsterStepResult{Id: "s"}}},
+		{"JSON that is a list, not an object", &stepResult{LobsterStepResult: params.LobsterStepResult{Id: "s", Json: []any{1, 2}}, HasJSON: true}},
 		{"object with no _meta", costStep(t, map[string]any{"ok": true})},
-		{"_meta that is not an object", &stepResult{ID: "s", JSON: map[string]any{"_meta": "nope"}, HasJSON: true}},
+		{"_meta that is not an object", &stepResult{LobsterStepResult: params.LobsterStepResult{Id: "s", Json: map[string]any{"_meta": "nope"}}, HasJSON: true}},
 		{"_meta with no cost", costStep(t, map[string]any{"_meta": map[string]any{"other": 1}})},
 	}
 	for _, tc := range cases {

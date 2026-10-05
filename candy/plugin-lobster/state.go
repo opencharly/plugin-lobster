@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opencharly/plugin-lobster/candy/plugin-lobster/params"
 	"github.com/opencharly/sdk/kit"
 	"github.com/opencharly/spec/lock"
 )
@@ -82,15 +83,15 @@ func decodeToken(token string) (resumeTokenPayload, error) {
 // resumeState is upstream's WorkflowResumeState plus the decision fields the wire
 // request contributes (never persisted).
 type resumeState struct {
-	FilePath         string                 `json:"filePath"`
-	ResumeAtIndex    int64                  `json:"resumeAtIndex"`
-	Steps            map[string]*stepResult `json:"steps"`
-	Args             map[string]any         `json:"args"`
-	ApprovalStepID   string                 `json:"approvalStepId,omitempty"`
-	ApprovalIdentity *approvalIdentity      `json:"approvalIdentity,omitempty"`
-	InputStepID      string                 `json:"inputStepId,omitempty"`
-	InputSchema      map[string]any         `json:"inputSchema,omitempty"`
-	InputSubject     any                    `json:"inputSubject,omitempty"`
+	FilePath         string                          `json:"filePath"`
+	ResumeAtIndex    int64                           `json:"resumeAtIndex"`
+	Steps            map[string]*stepResult          `json:"steps"`
+	Args             map[string]any                  `json:"args"`
+	ApprovalStepID   string                          `json:"approvalStepId,omitempty"`
+	ApprovalIdentity *params.LobsterApprovalIdentity `json:"approvalIdentity,omitempty"`
+	InputStepID      string                          `json:"inputStepId,omitempty"`
+	InputSchema      map[string]any                  `json:"inputSchema,omitempty"`
+	InputSubject     any                             `json:"inputSubject,omitempty"`
 	// RedoCount is this plugin's OWN state (never spec wire): the per-target redo budget at
 	// the moment the run paused, so a resume cannot reset the LOOP-GUARD. Optional and
 	// omitempty — a state file that predates the field loads with a nil map, treated as an
@@ -113,23 +114,20 @@ type resumeState struct {
 	Response    map[string]any `json:"-"`
 }
 
-// approvalIdentity is upstream's WorkflowApprovalIdentity.
-type approvalIdentity struct {
-	InitiatedBy              string `json:"initiatedBy,omitempty"`
-	RequiredApprover         string `json:"requiredApprover,omitempty"`
-	RequireDifferentApprover bool   `json:"requireDifferentApprover,omitempty"`
-}
-
 // MarshalJSON emits exactly upstream's result field set: the persisted state is read back
 // by THIS engine, but keeping the shape identical means a state written here and one
 // written by upstream are interchangeable, which is what "wire-compatible" claims.
+//
+// The approval field is gated on HasApproved, not on the bare bool: upstream writes a bare
+// `approved`, so an ABSENT approval and a recorded `false` are different states, and only
+// the presence flag can tell them apart on the way back in.
 func (r *stepResult) MarshalJSON() ([]byte, error) {
-	m := map[string]any{"id": r.ID}
+	m := map[string]any{"id": r.Id}
 	if r.Stdout != "" {
 		m["stdout"] = r.Stdout
 	}
-	if r.HasJSON && r.JSON != nil {
-		m["json"] = r.JSON
+	if r.HasJSON && r.Json != nil {
+		m["json"] = r.Json
 	}
 	if r.HasResp {
 		m["response"] = r.Response
@@ -137,8 +135,8 @@ func (r *stepResult) MarshalJSON() ([]byte, error) {
 	if r.HasSubject {
 		m["subject"] = r.Subject
 	}
-	if r.Approved != nil {
-		m["approved"] = *r.Approved
+	if r.HasApproved {
+		m["approved"] = r.Approved
 	}
 	if r.ApprovedBy != "" {
 		m["approvedBy"] = r.ApprovedBy
@@ -165,12 +163,12 @@ func (r *stepResult) UnmarshalJSON(data []byte) error {
 		}
 		return json.Unmarshal(raw, dst) == nil
 	}
-	_ = decode("id", &r.ID)
+	_ = decode("id", &r.Id)
 	// The decode IS the point: a present-but-empty stdout is still present, so the
 	// field is written either way and the bool result carries no information.
 	_ = decode("stdout", &r.Stdout)
 	if v, ok := m["json"]; ok {
-		if err := json.Unmarshal(v, &r.JSON); err == nil {
+		if err := json.Unmarshal(v, &r.Json); err == nil {
 			r.HasJSON = true
 		}
 	}
@@ -187,7 +185,7 @@ func (r *stepResult) UnmarshalJSON(data []byte) error {
 	if _, ok := m["approved"]; ok {
 		var b bool
 		if err := json.Unmarshal(m["approved"], &b); err == nil {
-			r.Approved = &b
+			r.Approved, r.HasApproved = b, true
 		}
 	}
 	_ = decode("approvedBy", &r.ApprovedBy)

@@ -202,12 +202,15 @@ type engineOptions struct {
 // run result
 // ---------------------------------------------------------------------------
 
-// runResult is upstream's WorkflowRunResult — the tool-mode envelope v1. run.go maps it
-// onto spec.WorkflowRunReply.
+// runResult is the engine's internal envelope. Its FIELD types are the CUE-sourced
+// params shapes; the divergence is the POINTERS, which carry presence to runReply (an
+// absent gate must be distinguishable from a zero value) and which upstream's
+// value-typed envelope cannot express. It is NEVER json.Marshal'd — runReply projects it
+// onto spec.WorkflowRunReply, and that is what plugin.go marshals.
 type runResult struct {
 	Status           string
 	Output           []any
-	RequiresApproval *approvalRequest
+	RequiresApproval *params.LobsterApprovalRequest
 	RequiresInput    *inputRequest
 	Cost             *costSummary
 }
@@ -345,10 +348,10 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 		}
 		step := &steps[idx]
 
-		if ok, err := evaluateWhen(step.When, st.results); err != nil {
+		if ok, err := evaluateWhen(step, st.results); err != nil {
 			return nil, fmt.Errorf("Workflow step %s when: %w", step.Id, err)
 		} else if !ok {
-			st.results[step.Id] = &stepResult{ID: step.Id, Skipped: true}
+			st.results[step.Id] = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Skipped: true}}
 			continue
 		}
 
@@ -408,7 +411,7 @@ func (st *runState) runSteps(ctx context.Context, startIndex int64) (*runResult,
 				}
 				return nil, err
 			}
-			st.results[step.Id] = &stepResult{ID: step.Id, Error: true, ErrorMessage: errorMessage}
+			st.results[step.Id] = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Error: true, ErrorMessage: errorMessage}}
 			st.costs.settle()
 			if lerr := st.costs.checkLimit(); lerr != nil {
 				return nil, lerr
@@ -563,7 +566,7 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 			return nil, nil, err
 		}
 		stdout, stderr, code, err := st.eng.shell.Run(runCtx, command, encodeShellInput(stdinVal), env, cwd, timeout)
-		res := &stepResult{ID: step.Id, Stdout: stdout, Stderr: stderr, ExitCode: code}
+		res := &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Stdout: stdout}, Stderr: stderr, ExitCode: code}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -584,7 +587,7 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 			}
 			return nil, nil, cause
 		}
-		res.JSON, res.HasJSON = parseJSON(stdout)
+		res.Json, res.HasJSON = parseJSON(stdout)
 		return res, nil, nil
 
 	case kindPipeline:
@@ -600,12 +603,12 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 		if err != nil {
 			return nil, nil, err
 		}
-		res := &stepResult{ID: step.Id, Stdout: rendered}
-		res.JSON, res.HasJSON = parseJSON(rendered)
+		res := &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Stdout: rendered}}
+		res.Json, res.HasJSON = parseJSON(rendered)
 		if !res.HasJSON && len(items) > 0 {
-			res.JSON, res.HasJSON = items, true
+			res.Json, res.HasJSON = items, true
 			if len(items) == 1 {
-				res.JSON = items[0]
+				res.Json = items[0]
 			}
 		}
 		return res, nil, nil
@@ -643,7 +646,7 @@ func (st *runState) attemptStep(ctx context.Context, step *params.LobsterStep, k
 		} else {
 			jsonVal = append([]any{}, sub.Output...)
 		}
-		res := &stepResult{ID: step.Id, JSON: jsonVal, HasJSON: true}
+		res := &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Json: jsonVal}, HasJSON: true}
 		if len(sub.Output) > 0 {
 			res.Stdout = serializeValueForStdout(jsonVal)
 		}
@@ -699,14 +702,13 @@ func (st *runState) applyResume(ctx context.Context) error {
 		}
 		previous := st.results[r.ApprovalStepID]
 		if previous == nil {
-			previous = &stepResult{ID: r.ApprovalStepID}
+			previous = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: r.ApprovalStepID}}
 		}
 		approvedBy := strings.TrimSpace(st.eng.env["LOBSTER_APPROVAL_APPROVED_BY"])
 		if err := enforceApprovalIdentity(r.ApprovalStepID, r.ApprovalIdentity, approvedBy); err != nil {
 			return err
 		}
-		approved := true
-		previous.Approved = &approved
+		previous.Approved, previous.HasApproved = true, true
 		if approvedBy != "" {
 			previous.ApprovedBy = approvedBy
 		}
@@ -739,7 +741,7 @@ func (st *runState) applyResume(ctx context.Context) error {
 		// if the step's condition flipped; refuse rather than record a response for a
 		// step that will not run.
 		step := &st.file.Steps[idx]
-		ok2, err := evaluateWhen(step.When, st.results)
+		ok2, err := evaluateWhen(step, st.results)
 		if err != nil {
 			return err
 		}
@@ -755,7 +757,7 @@ func (st *runState) applyResume(ctx context.Context) error {
 		}
 		previous := st.results[r.InputStepID]
 		if previous == nil {
-			previous = &stepResult{ID: r.InputStepID}
+			previous = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: r.InputStepID}}
 		}
 		previous.Subject = r.InputSubject
 		previous.HasSubject = true
@@ -805,7 +807,7 @@ func (st *runState) dryRun(startIndex int64) (*runResult, error) {
 	var b strings.Builder
 	for idx := int(startIndex); idx < len(st.file.Steps); idx++ {
 		step := &st.file.Steps[idx]
-		ok, err := evaluateWhen(step.When, st.results)
+		ok, err := evaluateWhen(step, st.results)
 		if err != nil {
 			return nil, fmt.Errorf("Workflow step %s when: %w", step.Id, err)
 		}
@@ -1007,11 +1009,11 @@ func toOutputItems(r *stepResult) []any {
 	if r == nil {
 		return nil
 	}
-	if r.HasJSON && r.JSON != nil {
-		if arr, ok := r.JSON.([]any); ok {
+	if r.HasJSON && r.Json != nil {
+		if arr, ok := r.Json.([]any); ok {
 			return arr
 		}
-		return []any{r.JSON}
+		return []any{r.Json}
 	}
 	if r.HasResp && r.Response != nil {
 		if arr, ok := r.Response.([]any); ok {
@@ -1039,17 +1041,17 @@ func cloneResults(in results) results {
 
 // createSyntheticStepResult is upstream's synthetic result for a step with no exec arm.
 func createSyntheticStepResult(stepID string, value any) *stepResult {
-	res := &stepResult{ID: stepID}
+	res := &stepResult{LobsterStepResult: params.LobsterStepResult{Id: stepID}}
 	if value == nil {
 		return res
 	}
 	if s, ok := value.(string); ok {
 		res.Stdout = s
-		res.JSON, res.HasJSON = parseJSON(s)
+		res.Json, res.HasJSON = parseJSON(s)
 		return res
 	}
 	res.Stdout = serializeValueForStdout(value)
-	res.JSON, res.HasJSON = value, true
+	res.Json, res.HasJSON = value, true
 	return res
 }
 

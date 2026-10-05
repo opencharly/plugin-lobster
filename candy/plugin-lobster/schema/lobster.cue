@@ -2,8 +2,11 @@
 //
 // Self-contained: no package clause, no base references — it compiles standalone and
 // splices onto the host base (the `plugin-pipeline/schema/pipeline.cue` precedent).
-// cue:gen (wrapped with package params + @go(params)) emits params/cue_types_gen.go,
-// which is the ONLY Go view of these shapes.
+// cue:gen (wrapped with package params + @go(params)) emits params/cue_types_gen.go, which
+// is the Go view of these shapes. The engine REACHES that view one of two ways: by DIRECT
+// use of the generated type, or by EMBEDDING it in a small engine-only wrapper (the
+// documented `json:"-"` exception) when the engine needs a field upstream does not carry.
+// It is never re-declared by hand.
 //
 // WHAT THIS IS
 // ------------
@@ -35,11 +38,48 @@
 //
 // WHERE EACH DEF IS USED
 // ----------------------
-//  #LobsterFile          `charly lobster import <file>` decodes it; `export` marshals it.
-//  #LobsterRunResult     the tool-mode envelope the engine answers and the shape the
-//                        `lobster-upstream-parity` bed decodes from upstream lobster.
-//  #LobsterStepResult    one step's recorded outcome (the run ledger row).
-//  #LobsterCost*         the `cost_limit` floor and the `_meta.cost` summary.
+// Every line names a consumer that exists in this repo today (grep the type name to find
+// it); a def with no consumer says so explicitly rather than naming a dead one.
+//
+//  #LobsterFile              loadWorkflowFile (lobster.go) decodes it; the engine's run
+//                            path and `charly lobster import` consume it, `export` marshals it.
+//  #LobsterStep              the step the engine walks (engine.go, batch.go, gate.go).
+//  #LobsterApprovalRequest   extractApprovalRequest (gate.go) returns it directly, and
+//                            runResult.RequiresApproval (engine.go) carries it.
+//  #LobsterInputRequest      EMBEDDED by inputRequest (gate.go), which adds only StepID;
+//                            runResult.RequiresInput (engine.go) carries the wrapper.
+//  #LobsterApprovalIdentity  approvalIdentityFromConfig / approvalIdentityFromRequest
+//                            (gate.go) build it, and resumeState.ApprovalIdentity (state.go)
+//                            persists it.
+//  #LobsterApprovalObject    normalizeApprovalConfig (gate.go) decodes the `approval`
+//                            object form THROUGH it instead of hand-reading keys.
+//  #LobsterStepResult        EMBEDDED by stepResult (refs.go), one run-ledger row; the
+//                            custom Marshal/Unmarshal in state.go is the PERSISTED codec.
+//  #LobsterCostMeta          costTracker.track (cost.go) decodes a step's `_meta` through
+//                            it.
+//  #LobsterCostSummary /     the `cost` payload of #LobsterCostMeta, projected onto the
+//  #LobsterStepCost          engine's typed costSummary / stepCost so `checkLimit` can do
+//                            the arithmetic (int64/float64 — the generated fields are `any`).
+//  #LobsterCostLimit         the costTracker's configured ceiling (cost.go), used directly.
+//  #LobsterRunResult         ZERO references: the wire reply the engine answers is
+//                            spec.WorkflowRunReply (run.go), never this authored shape. It
+//                            is kept as part of the upstream contract's transcription, not
+//                            because a Go consumer reads it.
+//
+// The remaining step satellites (#LobsterParallel, #LobsterBranch, #LobsterInput,
+// #LobsterRetry, #LobsterApproval, …) are used DIRECTLY as the engine's field types.
+//
+// THREE engine types sit BESIDE the generated defs rather than being them, each for a
+// reason the generated shape cannot express, and each documented at its definition:
+//
+//   runResult (engine.go)              its FIELD types ARE the generated ones; only the
+//                                      POINTERS diverge (an absent gate must be
+//                                      distinguishable from a zero value), and it is never
+//                                      marshalled — runReply projects it onto the IR.
+//   stepResult (refs.go)               EMBEDS #LobsterStepResult; adds only the presence
+//                                      flags plus exit code / stderr the persisted state
+//                                      codec needs.
+//   costSummary / stepCost (cost.go)   typed int64/float64 for `checkLimit`'s arithmetic.
 //
 // The ENGINE'S WIRE contract is NOT here: `workflow-run|resume|schedule|emit` decode
 // `spec.WorkflowRunRequest` / `spec.WorkflowResumeRequest` / `spec.WorkflowScheduleRequest`

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/opencharly/plugin-lobster/candy/plugin-lobster/params"
 	"github.com/opencharly/sdk/workflowkit"
 )
 
@@ -32,37 +33,33 @@ var (
 	stepRefWhole  = regexp.MustCompile(`^\$([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)$`)
 )
 
-// stepResult is one step's recorded outcome — the ref root. Fields mirror upstream's
-// WorkflowStepResult, plus the fields charly records (exit code, attempt count).
+// stepResult is the run-ledger row persisted into the state file. It EMBEDS the
+// CUE-sourced params.LobsterStepResult (upstream's step-outcome envelope) and adds ONLY
+// the engine-only state upstream does not carry: the presence flags for the optional
+// json/response/subject and for approval (upstream writes bare fields, so presence is
+// unrecoverable from the value), plus the exit code and stderr the engine records. The
+// Marshal/Unmarshal in state.go are the PERSISTED-STATE codec, not the wire shape — which
+// is why the type carries a custom codec at all.
 type stepResult struct {
-	ID           string
-	Stdout       string
-	JSON         any
-	HasJSON      bool
-	Response     any
-	HasResp      bool
-	Subject      any
-	HasSubject   bool
-	Approved     *bool
-	ApprovedBy   string
-	InitiatedBy  string
-	Skipped      bool
-	Error        bool
-	ErrorMessage string
-	ExitCode     int
-	Stderr       string
+	params.LobsterStepResult
+	HasJSON     bool
+	HasResp     bool
+	HasSubject  bool
+	HasApproved bool
+	ExitCode    int
+	Stderr      string
 }
 
 // envelope renders the step's ref root as the JSON document `workflowkit.Eval` walks with
 // gjson. Only present fields are emitted, so `$s.json` on a step that produced no JSON
 // stays absent rather than becoming an explicit null (upstream's `undefined`).
 func (r *stepResult) envelope() string {
-	m := map[string]any{"id": r.ID}
+	m := map[string]any{"id": r.Id}
 	if r.Stdout != "" {
 		m["stdout"] = r.Stdout
 	}
-	if r.HasJSON && r.JSON != nil {
-		m["json"] = r.JSON
+	if r.HasJSON && r.Json != nil {
+		m["json"] = r.Json
 	}
 	if r.HasResp {
 		m["response"] = r.Response
@@ -70,8 +67,8 @@ func (r *stepResult) envelope() string {
 	if r.HasSubject {
 		m["subject"] = r.Subject
 	}
-	if r.Approved != nil {
-		m["approved"] = *r.Approved
+	if r.HasApproved {
+		m["approved"] = r.Approved
 	}
 	if r.ApprovedBy != "" {
 		m["approvedBy"] = r.ApprovedBy
@@ -219,12 +216,12 @@ func getValueByPath(r *stepResult, path string) any {
 	case "stderr":
 		cur = r.Stderr
 	case "id":
-		cur = r.ID
+		cur = r.Id
 	case "json":
 		if !r.HasJSON {
 			return nil
 		}
-		cur = r.JSON
+		cur = r.Json
 	case "response":
 		if !r.HasResp {
 			return nil
@@ -236,10 +233,10 @@ func getValueByPath(r *stepResult, path string) any {
 		}
 		cur = r.Subject
 	case "approved":
-		if r.Approved == nil {
+		if !r.HasApproved {
 			return nil
 		}
-		cur = *r.Approved
+		cur = r.Approved
 	case "approvedBy":
 		if r.ApprovedBy == "" {
 			return nil
@@ -273,7 +270,7 @@ func getValueByPath(r *stepResult, path string) any {
 		if !r.HasJSON {
 			return nil
 		}
-		cur = r.JSON
+		cur = r.Json
 		rest = segments
 	}
 	for _, field := range rest {
@@ -372,9 +369,35 @@ func trimFloat(f float64) string {
 	return fmt.Sprintf("%g", f)
 }
 
-// evaluateWhen is `when ?? condition`: nil → true, a bool → itself, "true"/"false"
-// literally, else the workflowkit expression grammar against the step envelope scope.
-func evaluateWhen(condition any, rs results) (bool, error) {
+// evaluateWhen resolves a step's guard: `when ?? condition`. `when` is the field the
+// runner evaluates; when it is ABSENT (nil, or an empty/blank string) the legacy
+// `condition` spelling is used instead, so a step carrying only `condition:` is still
+// guarded rather than silently running. Neither set → the step is unguarded and runs.
+// The chosen value is handed to evalCondition.
+func evaluateWhen(step *params.LobsterStep, rs results) (bool, error) {
+	condition := step.When
+	if isBlankCondition(condition) {
+		condition = step.Condition
+	}
+	return evalCondition(condition, rs)
+}
+
+// isBlankCondition reports whether a guard value counts as absent: a nil, or a string
+// that is empty after trimming. A bool (including `false`) is a present guard.
+func isBlankCondition(v any) bool {
+	if v == nil {
+		return true
+	}
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s) == ""
+	}
+	return false
+}
+
+// evalCondition is the guard once the field has been CHOSEN: nil → true, a bool → itself,
+// "true"/"false" literally, else the workflowkit expression grammar against the step
+// envelope scope.
+func evalCondition(condition any, rs results) (bool, error) {
 	if condition == nil {
 		return true, nil
 	}

@@ -126,10 +126,10 @@ func (st *runState) runParallel(ctx context.Context, step *params.LobsterStep, e
 	aggregate := map[string]any{}
 	for _, b := range branches {
 		if res, ok := collected[b.Id]; ok {
-			aggregate[b.Id] = res.JSON
+			aggregate[b.Id] = res.Json
 		}
 	}
-	collected[step.Id] = &stepResult{ID: step.Id, JSON: aggregate, HasJSON: true}
+	collected[step.Id] = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Json: aggregate}, HasJSON: true}
 	return collected, nil
 }
 
@@ -211,7 +211,7 @@ func (st *runState) runForEach(ctx context.Context, step *params.LobsterStep, en
 	// rejects a `batch_size` below 1 (`lobster.go`) — and deliberately not used to pace the
 	// loop. The steps assert the ordering, not the hint.
 
-	return &stepResult{ID: step.Id, JSON: outputs, HasJSON: true}, nil
+	return &stepResult{LobsterStepResult: params.LobsterStepResult{Id: step.Id, Json: outputs}, HasJSON: true}, nil
 }
 
 // runSubSteps runs a loop body's sub-steps in order against a scoped result set,
@@ -222,12 +222,12 @@ func (st *runState) runSubSteps(ctx context.Context, loop *params.LobsterStep, s
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		ok, err := evaluateWhen(sub.When, scope)
+		ok, err := evaluateWhen(sub, scope)
 		if err != nil {
 			return nil, fmt.Errorf("Workflow step %s sub-step %s when: %w", loop.Id, sub.Id, err)
 		}
 		if !ok {
-			scope[sub.Id] = &stepResult{ID: sub.Id, Skipped: true}
+			scope[sub.Id] = &stepResult{LobsterStepResult: params.LobsterStepResult{Id: sub.Id, Skipped: true}}
 			continue
 		}
 
@@ -246,7 +246,7 @@ func (st *runState) runSubSteps(ctx context.Context, loop *params.LobsterStep, s
 		}
 		scope[sub.Id] = res
 		if res.HasJSON {
-			last = res.JSON
+			last = res.Json
 		} else {
 			last = res.Stdout
 		}
