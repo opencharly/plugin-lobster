@@ -46,8 +46,8 @@
 #      (`workflow:lobster`) AND the front-end (`command:pipeline`). The compiled-in
 #      dev-tree override was owned by opencharly/charly#775 (CLOSED 2026-10-04T19:54:53Z),
 #      and its fix — `scripts/bootstrap-charly.sh --dev-plugin <candy>=<checkout>` — is
-#      opencharly/charly#788 (MERGED, released in `v2026.277.1528`). The two runs above
-#      were made with a build of exactly that route.
+#      opencharly/charly#788 (MERGED, released in `v2026.277.1528`). Both bed runs
+#      described above were made with a build of exactly that route.
 #
 # `plugin-pipeline` (the front-end these beds drive) is deliberately NOT composed by a
 # `@github…` ref below. The front-end is reached HOST-SIDE — every step runs
@@ -63,9 +63,9 @@
 #   * `charly pipeline resume …`   — plugin-pipeline's CLI serves
 #     `run|validate|agent|probe|resume|schedule`
 #     (candy/plugin-pipeline/cli.go:52 in the merged tree). It gained `resume` and
-#     `schedule` in opencharly/plugin-pipeline#32, merged as `3d2aee88` and tagged
-#     `v2026.277.2104` (its path-scoped alias `candy/plugin-pipeline/v0.2026277.2104` names
-#     the same commit). The
+#     `schedule` in opencharly/plugin-pipeline#32, released in the tag `v2026.277.2104`
+#     (its path-scoped alias `candy/plugin-pipeline/v0.2026277.2104` names the same
+#     commit — the TAG is the identifier to resolve, never a bare SHA). The
 #     resume FLAGS (`--approve yes|no`, `--response-json`) are the engine's own wired
 #     surface (candy/plugin-lobster/engine.go:687/693/732/735), and
 #     `lobster-approval-resume` / `lobster-input-resume` drive them.
@@ -832,8 +832,9 @@ check-lobster-schedule-app:
 # face (see the file header); the OPS it names are the engine's own
 # `workflow-schedule` ops (schedule.go:53-63).
 #
-# TWO requirements every step below carries, both measured on the run at
-# `.check/check-lobster-schedule-local/2026.277.1733`:
+# TWO requirements every step below carries. Both were measured on a live run of this bed;
+# the run dir and `summary.yml` for the head under review are cited in that PR's body, not
+# here — this file names no run, only the requirements that hold in every run of it:
 #
 #  1. `export CHARLY_BIN="${CHARLY_BIN}"`. `${CHARLY_BIN}` is a check-variable EXPANSION
 #     (sdk/kit/checkvars_charlybin.go stamps the resolver's Env) — it is NOT exported into
