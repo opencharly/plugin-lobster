@@ -142,7 +142,7 @@ func TestScheduleApplyRefusesWithNoTriggers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gen, "schedule.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A trigger with no `schedule` is legal IR (a manual trigger); it must not install a
+	// A trigger with no `schedule` is legal (a manual trigger); it must not install a
 	// timer, and apply must say so rather than write a unit with an empty OnCalendar.
 	_, err := scheduleApply(context.Background(), "nightly")
 	if err == nil || !strings.Contains(err.Error(), "triggers.schedule") {

@@ -90,7 +90,7 @@ type LobsterStep struct {
 	// unknown step key is ignored by upstream, so an exported workflow.lobster stays
 	// runnable there (it simply runs every step once), while charly's native engine honours
 	// it. This is the operator-ruled route — the retired plugin-pipeline executor carried the
-	// same spec in its own IR.
+	// same spec in its own wire form.
 	Redo LobsterRedo `json:"redo,omitempty"`
 }
 

@@ -84,7 +84,7 @@
 // The ENGINE'S WIRE contract is NOT here: `workflow-run|resume|schedule|emit` decode
 // `spec.WorkflowRunRequest` / `spec.WorkflowResumeRequest` / `spec.WorkflowScheduleRequest`
 // / `spec.WorkflowEmitRequest` and answer the matching `spec.Workflow*Reply` — the
-// engine-agnostic IR envelopes from spec/schema/workflow.cue. This file is the
+// engine wire's envelopes, declared in spec/schema/workflow.cue. This file is the
 // lobster-SPECIFIC authored form, i.e. the one thing the engine wire deliberately does not carry.
 
 // ── the workflow file ───────────────────────────────────────────────────────
@@ -145,7 +145,7 @@
 	// unknown step key is ignored by upstream, so an exported workflow.lobster stays
 	// runnable there (it simply runs every step once), while charly's native engine honours
 	// it. This is the operator-ruled route — the retired plugin-pipeline executor carried the
-	// same spec in its own IR.
+	// same spec in its own wire form.
 	redo?: #LobsterRedo
 }
 
