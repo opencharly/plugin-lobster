@@ -75,7 +75,7 @@
 //   runResult (engine.go)              its FIELD types ARE the generated ones; only the
 //                                      POINTERS diverge (an absent gate must be
 //                                      distinguishable from a zero value), and it is never
-//                                      marshalled — runReply projects it onto the IR.
+//                                      marshalled — runReply projects it onto the engine wire's reply.
 //   stepResult (refs.go)               EMBEDS #LobsterStepResult; adds only the presence
 //                                      flags plus exit code / stderr the persisted state
 //                                      codec needs.
@@ -85,7 +85,7 @@
 // `spec.WorkflowRunRequest` / `spec.WorkflowResumeRequest` / `spec.WorkflowScheduleRequest`
 // / `spec.WorkflowEmitRequest` and answer the matching `spec.Workflow*Reply` — the
 // engine-agnostic IR envelopes from spec/schema/workflow.cue. This file is the
-// lobster-SPECIFIC authored form, i.e. the one thing the IR deliberately does not carry.
+// lobster-SPECIFIC authored form, i.e. the one thing the engine wire deliberately does not carry.
 
 // ── the workflow file ───────────────────────────────────────────────────────
 // #LobsterFile is upstream's WorkflowFile. `steps` is non-empty (load.ts: "Workflow
@@ -94,7 +94,7 @@
 	name?:        string
 	description?: string
 	// args: name -> {default, description}. Upstream's arg spec is a strict subset of
-	// charly's #TaskParamSpec, which is what the IR carries.
+	// charly's #TaskParamSpec, which is what the engine wire carries.
 	args?: {[string]: {default?: _, description?: string}}
 	env?:  {[string]: string}
 	cwd?:  string

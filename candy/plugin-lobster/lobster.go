@@ -9,7 +9,7 @@ package pluginlobster
 // those two apart. So the raw tree is the validation representation and
 // `params.LobsterFile` is the execution representation, decoded only after the tree
 // validates. Validating the struct instead would silently ACCEPT a file whose
-// `parallel:` block the engine would then ignore — exactly the "silently drop" the IR
+// `parallel:` block the engine would then ignore — exactly the "silently drop" the engine wire
 // contract forbids.
 //
 // The error strings are upstream's, verbatim: they are the operator's only diagnostic,

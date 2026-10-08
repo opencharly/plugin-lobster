@@ -183,7 +183,7 @@ func emitWorkflow(_ context.Context, in spec.WorkflowEmitRequest) (*spec.Workflo
 			files["charly-yml"] = dst
 		case "github-actions":
 			// The IR is designed to lower to GHA, but that consumer is NOT BUILT. Emitting
-			// something that looked like it would be the silent-drop failure the IR's own
+			// something that looked like it would be the silent-drop failure the engine wire's own
 			// contract forbids, so this is a hard refusal with the reason.
 			return nil, fmt.Errorf("workflow-emit: the github-actions consumer is designed but not built; supported formats are lobster, charly-yml")
 		default:
@@ -197,7 +197,7 @@ func emitWorkflow(_ context.Context, in spec.WorkflowEmitRequest) (*spec.Workflo
 // reply projection
 // ---------------------------------------------------------------------------
 
-// runReply maps the engine's envelope onto the IR's.
+// runReply maps the engine's envelope onto the engine wire's reply.
 func runReply(result *runResult) *spec.WorkflowRunReply {
 	if result == nil {
 		return &spec.WorkflowRunReply{Status: "error", Error: "workflow produced no result"}
@@ -259,7 +259,7 @@ func approvalTimeoutMs() int64 {
 	return n
 }
 
-// defaultsAsStrings projects the gate's defaults onto the IR's `map[string]string`.
+// defaultsAsStrings projects the gate's defaults onto the reply's `map[string]string`.
 func defaultsAsStrings(v any) map[string]string {
 	obj, ok := v.(map[string]any)
 	if !ok {

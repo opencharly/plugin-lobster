@@ -10,7 +10,7 @@ package pluginlobster
 // What is pinned: the happy path for every advertised format (an entry per format, byte-
 // identical to the lowered source), the `out_dir` default, and each refusal — a refusal
 // that silently wrote nothing, or that wrote a file for a format it cannot actually
-// produce, is the silent-drop failure the IR's own contract forbids.
+// produce, is the silent-drop failure the engine wire's contract forbids.
 
 import (
 	"context"

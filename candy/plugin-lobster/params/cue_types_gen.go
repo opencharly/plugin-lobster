@@ -11,7 +11,7 @@ type LobsterFile struct {
 	Description string `json:"description,omitempty"`
 
 	// args: name -> {default, description}. Upstream's arg spec is a strict subset of
-	// charly's #TaskParamSpec, which is what the IR carries.
+	// charly's #TaskParamSpec, which is what the engine wire carries.
 	Args map[string]struct {
 		Default any/* CUE top */ `json:"default,omitempty"`
 

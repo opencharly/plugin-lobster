@@ -29,7 +29,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // inputRequest is the needs_input block. It EMBEDS the CUE-sourced
-// params.LobsterInputRequest (upstream's own envelope) and adds ONLY StepID — the IR reply
+// params.LobsterInputRequest (upstream's own envelope) and adds ONLY StepID — the reply envelope
 // carries the gate's STEP (`#WorkflowInputRequest.step`) while upstream's envelope does
 // not, so the id is the single engine-only field and is projected at the reply boundary.
 type inputRequest struct {
@@ -495,7 +495,7 @@ func validateJSONSchema(schema map[string]any) error {
 
 // compileJSONSchema turns a JSON Schema document into a CUE value to validate against.
 // CUE's jsonschema extractor is used rather than a second schema engine: it is already a
-// pinned dependency of this plugin's SDK, and the IR's own contract is CUE.
+// pinned dependency of this plugin's SDK, and the engine wire's contract is CUE.
 func compileJSONSchema(schema map[string]any) (cue.Value, error) {
 	ctx := cuecontext.New()
 	doc := ctx.Encode(schema)
