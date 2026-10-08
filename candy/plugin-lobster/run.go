@@ -10,7 +10,7 @@ package pluginlobster
 // inspection. This is the seam: lowering is the front-end's job, execution is this
 // engine's, and neither guesses at the other's half.
 //
-// ── A NOTE ON THE ENGINE-WIRE PROJECTION ────────────────────────
+// ── A NOTE ON THE ENGINE-WIRE PROJECTION ────────────────────────────────────
 // `#WorkflowRunReply.requires_approval` is `#WorkflowApproval{message, timeout_ms}` and
 // `requires_input` is `#WorkflowInputRequest{step, prompt, response_schema, defaults}`.
 // The engine's own envelope is richer (lobster's `items`/`preview`/`approvalId` +
