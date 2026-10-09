@@ -10,11 +10,12 @@ package pluginlobster
 // inspection. This is the seam: lowering is the front-end's job, execution is this
 // engine's, and neither guesses at the other's half.
 //
-// ── A NOTE ON THE IR PROJECTION ─────────────────────────────────────────────
+// ── A NOTE ON THE ENGINE-WIRE PROJECTION ────────────────────────────────────
 // `#WorkflowRunReply.requires_approval` is `#WorkflowApproval{message, timeout_ms}` and
 // `requires_input` is `#WorkflowInputRequest{step, prompt, response_schema, defaults}`.
 // The engine's own envelope is richer (lobster's `items`/`preview`/`approvalId` +
-// the approver-identity policy), and those fields have NO home in the pinned IR. They
+// the approver-identity policy), and those fields have NO home in the pinned engine wire.
+// They
 // are therefore dropped at this boundary — which is a LOSSY PROJECTION, not a silent
 // drop: it is stated here, and the missing fields are recorded as an open coordination
 // item against the spec leg. What IS carried is everything a resume needs: the token,
@@ -182,8 +183,8 @@ func emitWorkflow(_ context.Context, in spec.WorkflowEmitRequest) (*spec.Workflo
 			}
 			files["charly-yml"] = dst
 		case "github-actions":
-			// The IR is designed to lower to GHA, but that consumer is NOT BUILT. Emitting
-			// something that looked like it would be the silent-drop failure the IR's own
+			// The authored pipeline is designed to lower to GHA, but that consumer is NOT BUILT. Emitting
+			// something that looked like it would be the silent-drop failure the engine wire's own
 			// contract forbids, so this is a hard refusal with the reason.
 			return nil, fmt.Errorf("workflow-emit: the github-actions consumer is designed but not built; supported formats are lobster, charly-yml")
 		default:
@@ -197,7 +198,7 @@ func emitWorkflow(_ context.Context, in spec.WorkflowEmitRequest) (*spec.Workflo
 // reply projection
 // ---------------------------------------------------------------------------
 
-// runReply maps the engine's envelope onto the IR's.
+// runReply maps the engine's envelope onto the engine wire's reply.
 func runReply(result *runResult) *spec.WorkflowRunReply {
 	if result == nil {
 		return &spec.WorkflowRunReply{Status: "error", Error: "workflow produced no result"}
@@ -259,7 +260,7 @@ func approvalTimeoutMs() int64 {
 	return n
 }
 
-// defaultsAsStrings projects the gate's defaults onto the IR's `map[string]string`.
+// defaultsAsStrings projects the gate's defaults onto the reply's `map[string]string`.
 func defaultsAsStrings(v any) map[string]string {
 	obj, ok := v.(map[string]any)
 	if !ok {

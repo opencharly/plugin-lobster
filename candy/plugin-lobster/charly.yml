@@ -15,7 +15,7 @@ plugin-lobster:
             Four ops: `workflow-run` (execute), `workflow-resume` (answer a pending
             approval/input gate by resume token or short id), `workflow-schedule`
             (apply|list|remove|run-now the trigger's systemd-user timers) and
-            `workflow-emit` (lower the IR to a consumer's on-disk form).
+            `workflow-emit` (lower the pipeline to a consumer's on-disk form).
 
             The `command:lobster` face is the CLI: `charly lobster import <file>` turns
             an upstream `.lobster` file into a `kind:pipeline` entity, `charly lobster

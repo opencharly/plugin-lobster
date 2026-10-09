@@ -7,7 +7,7 @@ package pluginlobster
 // this engine implements the DETERMINISTIC ones — filtering, shaping, rendering, and its
 // own key/value state — and REFUSES the ones that need a model or an external service.
 //
-// The refusal is deliberate and is the IR's CLOSED doctrine applied at stage level: a
+// The refusal is deliberate and is the engine wire's CLOSED doctrine applied at stage level: a
 // stage that silently did nothing would run a workflow whose author believed a model had
 // triaged their mail. So an external stage fails with an error that NAMES the charly
 // alternative (`agent:`/`task:` steps, which go through the normal plugin dispatch), and

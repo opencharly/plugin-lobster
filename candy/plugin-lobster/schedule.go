@@ -8,9 +8,9 @@ package pluginlobster
 // through exactly the same engine path as a hand-run one — there is no second runner.
 //
 // WHERE THE CRON COMES FROM. The lowered pair deliberately does NOT carry `triggers`:
-// `lobsterDrop` in workflowkit hands them to the ENGINE, and they are IR-level data the
+// `lobsterDrop` in workflowkit hands them to the ENGINE, and they are pipeline-level data the
 // front-end owns. So the front-end writes them where the engine can read them, as
-// `<gen-dir>/schedule.json` — the IR's OWN `#WorkflowTrigger` list, so this is not a new
+// `<gen-dir>/schedule.json` — the contract's OWN `#WorkflowTrigger` list (schema/workflow.cue), so this is not a new
 // contract. `apply` without that file is a hard error naming it, never a silently
 // absent timer.
 
@@ -32,7 +32,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// scheduleDescriptor is what the front-end writes for the scheduler. It is the IR's own
+// scheduleDescriptor is what the front-end writes for the scheduler. It is the contract's own
 // trigger list, wrapped with the pipeline name so the file is self-describing.
 type scheduleDescriptor struct {
 	Pipeline string                 `json:"pipeline"`

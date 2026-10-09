@@ -31,7 +31,7 @@ charly.yml  kind:pipeline            lobster syntax + charly plan: steps
 
 Because every charly step is an ordinary `charly` invocation, the exported
 `(workflow.lobster, charly.yml)` pair is portable to **upstream lobster** — nothing in it
-needs this engine — and a future consumer (GitHub Actions) lowers from the same IR. That
+needs this engine — and a future consumer (GitHub Actions) can be built from the same authored pipeline. That
 portability is the *interface* property the lowering is designed for; it is **not asserted
 by this repo's beds**, which have no upstream lobster to invoke (openclaw/lobster is not
 vendored here, and the engine bed deliberately carries no green no-op step standing in for
