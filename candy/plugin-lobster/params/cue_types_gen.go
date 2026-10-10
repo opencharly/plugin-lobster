@@ -6,25 +6,25 @@ package params
 // #LobsterFile is upstream's WorkflowFile. `steps` is non-empty (load.ts: "Workflow
 // file requires a non-empty steps array").
 type LobsterFile struct {
-	Name string `json:"name,omitempty"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 
-	Description string `json:"description,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
 	// args: name -> {default, description}. Upstream's arg spec is a strict subset of
 	// charly's #TaskParamSpec, which is what the engine wire carries.
 	Args map[string]struct {
-		Default any/* CUE top */ `json:"default,omitempty"`
+		Default any/* CUE top */ `yaml:"default,omitempty" json:"default,omitempty"`
 
-		Description string `json:"description,omitempty"`
-	} `json:"args,omitempty"`
+		Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	} `yaml:"args,omitempty" json:"args,omitempty"`
 
-	Env map[string]string `json:"env,omitempty"`
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
-	Cwd string `json:"cwd,omitempty"`
+	Cwd string `yaml:"cwd,omitempty" json:"cwd,omitempty"`
 
-	Steps []LobsterStep `json:"steps"`
+	Steps []LobsterStep `yaml:"steps,omitempty" json:"steps"`
 
-	Cost_limit LobsterCostLimit `json:"cost_limit,omitempty"`
+	Cost_limit LobsterCostLimit `yaml:"cost_limit,omitempty" json:"cost_limit,omitempty"`
 }
 
 // ── one step ────────────────────────────────────────────────────────────────
@@ -32,58 +32,58 @@ type LobsterFile struct {
 // input gate. load.ts enforces the exclusivity and the counts; the CUE bounds below
 // carry the per-field ones (types, enums, numeric ranges) it also enforces.
 type LobsterStep struct {
-	Id string `json:"id"`
+	Id string `yaml:"id,omitempty" json:"id"`
 
 	// the shell arm. `command` is upstream's deprecated ALIAS of `run` (load.ts:
 	// `typeof step.run === "string" ? step.run : step.command`) — accepted on import.
-	Run string `json:"run,omitempty"`
+	Run string `yaml:"run,omitempty" json:"run,omitempty"`
 
-	Command string `json:"command,omitempty"`
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
 
 	// the deterministic stdlib arm: a lobster pipeline expression, parsed and run
 	// natively (never handed to a shell).
-	Pipeline string `json:"pipeline,omitempty"`
+	Pipeline string `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
 
 	// the sub-workflow arm: a file path to another .lobster file.
-	Workflow string `json:"workflow,omitempty"`
+	Workflow string `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 
-	Workflow_args map[string]any/* CUE top */ `json:"workflow_args,omitempty"`
+	Workflow_args map[string]any/* CUE top */ `yaml:"workflow_args,omitempty" json:"workflow_args,omitempty"`
 
-	Parallel LobsterParallel `json:"parallel,omitempty"`
+	Parallel LobsterParallel `yaml:"parallel,omitempty" json:"parallel,omitempty"`
 
-	For_each string `json:"for_each,omitempty"`
+	For_each string `yaml:"for_each,omitempty" json:"for_each,omitempty"`
 
-	Item_var string `json:"item_var,omitempty"`
+	Item_var string `yaml:"item_var,omitempty" json:"item_var,omitempty"`
 
-	Index_var string `json:"index_var,omitempty"`
+	Index_var string `yaml:"index_var,omitempty" json:"index_var,omitempty"`
 
-	Batch_size int64 `json:"batch_size,omitempty"`
+	Batch_size int64 `yaml:"batch_size,omitempty" json:"batch_size,omitempty"`
 
-	Pause_ms any/* CUE number; int64 or float64 */ `json:"pause_ms,omitempty"`
+	Pause_ms any/* CUE number; int64 or float64 */ `yaml:"pause_ms,omitempty" json:"pause_ms,omitempty"`
 
-	Steps []*LobsterStep `json:"steps,omitempty"`
+	Steps []*LobsterStep `yaml:"steps,omitempty" json:"steps,omitempty"`
 
-	Env map[string]string `json:"env,omitempty"`
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
-	Cwd string `json:"cwd,omitempty"`
+	Cwd string `yaml:"cwd,omitempty" json:"cwd,omitempty"`
 
-	Stdin any/* CUE top */ `json:"stdin,omitempty"`
+	Stdin any/* CUE top */ `yaml:"stdin,omitempty" json:"stdin,omitempty"`
 
-	Approval LobsterApproval `json:"approval,omitempty"`
+	Approval LobsterApproval `yaml:"approval,omitempty" json:"approval,omitempty"`
 
-	Input LobsterInput `json:"input,omitempty"`
+	Input LobsterInput `yaml:"input,omitempty" json:"input,omitempty"`
 
 	// condition/when: upstream carries both; `when` is the one the runner evaluates
 	// (an expression over $id.* refs) and `condition` is the legacy spelling.
-	Condition any/* CUE top */ `json:"condition,omitempty"`
+	Condition any/* CUE top */ `yaml:"condition,omitempty" json:"condition,omitempty"`
 
-	When any/* CUE top */ `json:"when,omitempty"`
+	When any/* CUE top */ `yaml:"when,omitempty" json:"when,omitempty"`
 
-	Timeout_ms int64 `json:"timeout_ms,omitempty"`
+	Timeout_ms int64 `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
 
-	On_error string `json:"on_error,omitempty"`
+	On_error string `yaml:"on_error,omitempty" json:"on_error,omitempty"`
 
-	Retry LobsterRetry `json:"retry,omitempty"`
+	Retry LobsterRetry `yaml:"retry,omitempty" json:"retry,omitempty"`
 
 	// redo: the charly-only conditional BACK-EDGE (see #LobsterRedo). It rides a STEP key
 	// because that is the only shape upstream's open loader passes through unchanged: an
@@ -91,35 +91,35 @@ type LobsterStep struct {
 	// runnable there (it simply runs every step once), while charly's native engine honours
 	// it. This is the operator-ruled route — the retired plugin-pipeline executor carried the
 	// same spec in its own wire form.
-	Redo LobsterRedo `json:"redo,omitempty"`
+	Redo LobsterRedo `yaml:"redo,omitempty" json:"redo,omitempty"`
 }
 
 // ── parallel ────────────────────────────────────────────────────────────────
 type LobsterParallel struct {
-	Wait string `json:"wait,omitempty"`
+	Wait string `yaml:"wait,omitempty" json:"wait,omitempty"`
 
-	Timeout_ms int64 `json:"timeout_ms,omitempty"`
+	Timeout_ms int64 `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
 
-	Branches []LobsterBranch `json:"branches"`
+	Branches []LobsterBranch `yaml:"branches,omitempty" json:"branches"`
 }
 
 // #LobsterBranch: one parallel branch. Exactly one of run | command | pipeline
 // (load.ts: "can only define one of run, command, or pipeline"). A branch has no
 // nested steps, no approval and no input — upstream's shape, not a simplification.
 type LobsterBranch struct {
-	Id string `json:"id"`
+	Id string `yaml:"id,omitempty" json:"id"`
 
-	Run string `json:"run,omitempty"`
+	Run string `yaml:"run,omitempty" json:"run,omitempty"`
 
-	Command string `json:"command,omitempty"`
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
 
-	Pipeline string `json:"pipeline,omitempty"`
+	Pipeline string `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
 
-	Env map[string]string `json:"env,omitempty"`
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
-	Cwd string `json:"cwd,omitempty"`
+	Cwd string `yaml:"cwd,omitempty" json:"cwd,omitempty"`
 
-	Stdin any/* CUE top */ `json:"stdin,omitempty"`
+	Stdin any/* CUE top */ `yaml:"stdin,omitempty" json:"stdin,omitempty"`
 }
 
 // ── gates ───────────────────────────────────────────────────────────────────
@@ -133,26 +133,26 @@ type LobsterApproval any /* CUE disjunction: (bool|string|struct) */
 // it (compileCached) and rejects an invalid one, which the Go side does with
 // cuelang.org/go/encoding/jsonschema.
 type LobsterInput struct {
-	Prompt string `json:"prompt"`
+	Prompt string `yaml:"prompt,omitempty" json:"prompt"`
 
-	ResponseSchema any/* CUE top */ `json:"responseSchema"`
+	ResponseSchema any/* CUE top */ `yaml:"responseSchema,omitempty" json:"responseSchema"`
 
-	Defaults any/* CUE top */ `json:"defaults,omitempty"`
+	Defaults any/* CUE top */ `yaml:"defaults,omitempty" json:"defaults,omitempty"`
 }
 
 // ── retry ───────────────────────────────────────────────────────────────────
 // #LobsterRetry: the per-step retry policy (load.ts validates each field's type and
 // range; `max` is a positive integer, `backoff` the closed two-member enum).
 type LobsterRetry struct {
-	Max int64 `json:"max,omitempty"`
+	Max int64 `yaml:"max,omitempty" json:"max,omitempty"`
 
-	Backoff string `json:"backoff,omitempty"`
+	Backoff string `yaml:"backoff,omitempty" json:"backoff,omitempty"`
 
-	Delay_ms any/* CUE number; int64 or float64 */ `json:"delay_ms,omitempty"`
+	Delay_ms any/* CUE number; int64 or float64 */ `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
 
-	Max_delay_ms any/* CUE number; int64 or float64 */ `json:"max_delay_ms,omitempty"`
+	Max_delay_ms any/* CUE number; int64 or float64 */ `yaml:"max_delay_ms,omitempty" json:"max_delay_ms,omitempty"`
 
-	Jitter bool `json:"jitter,omitempty"`
+	Jitter bool `yaml:"jitter,omitempty" json:"jitter,omitempty"`
 }
 
 // ── redo ─────────────────────────────────────────────────────────────────────
@@ -161,160 +161,160 @@ type LobsterRetry struct {
 // EARLIER step to re-enter. Upstream lobster has no such key and ignores it, so an exported
 // workflow.lobster stays runnable by upstream (it simply runs every step once).
 type LobsterRedo struct {
-	On_fail any/* CUE disjunction: (string|list) */ `json:"on_fail,omitempty"`
+	On_fail any/* CUE disjunction: (string|list) */ `yaml:"on_fail,omitempty" json:"on_fail,omitempty"`
 
-	Triggers map[string]string `json:"triggers,omitempty"`
+	Triggers map[string]string `yaml:"triggers,omitempty" json:"triggers,omitempty"`
 
-	Max int64 `json:"max,omitempty"`
+	Max int64 `yaml:"max,omitempty" json:"max,omitempty"`
 
-	Escalate_after int64 `json:"escalate_after,omitempty"`
+	Escalate_after int64 `yaml:"escalate_after,omitempty" json:"escalate_after,omitempty"`
 }
 
 // ── cost ────────────────────────────────────────────────────────────────────
 // #LobsterCostLimit: the workflow-level `cost_limit` (cost_tracker.ts). max_usd is a
 // non-negative number and action is the closed {warn, stop} enum.
 type LobsterCostLimit struct {
-	Max_usd any/* CUE number; int64 or float64 */ `json:"max_usd"`
+	Max_usd any/* CUE number; int64 or float64 */ `yaml:"max_usd,omitempty" json:"max_usd"`
 
-	Action string `json:"action,omitempty"`
+	Action string `yaml:"action,omitempty" json:"action,omitempty"`
 }
 
 // The object form. The snake_case and camelCase spellings are BOTH upstream-legal
 // (load.ts validates each independently), hence both are carried.
 type LobsterApprovalObject struct {
-	Prompt string `json:"prompt,omitempty"`
+	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 
-	Items []any/* CUE top */ `json:"items,omitempty"`
+	Items []any/* CUE top */ `yaml:"items,omitempty" json:"items,omitempty"`
 
-	Preview string `json:"preview,omitempty"`
+	Preview string `yaml:"preview,omitempty" json:"preview,omitempty"`
 
-	Initiated_by string `json:"initiated_by,omitempty"`
+	Initiated_by string `yaml:"initiated_by,omitempty" json:"initiated_by,omitempty"`
 
-	InitiatedBy string `json:"initiatedBy,omitempty"`
+	InitiatedBy string `yaml:"initiatedBy,omitempty" json:"initiatedBy,omitempty"`
 
-	Required_approver string `json:"required_approver,omitempty"`
+	Required_approver string `yaml:"required_approver,omitempty" json:"required_approver,omitempty"`
 
-	RequiredApprover string `json:"requiredApprover,omitempty"`
+	RequiredApprover string `yaml:"requiredApprover,omitempty" json:"requiredApprover,omitempty"`
 
-	Require_different_approver bool `json:"require_different_approver,omitempty"`
+	Require_different_approver bool `yaml:"require_different_approver,omitempty" json:"require_different_approver,omitempty"`
 
-	RequireDifferentApprover bool `json:"requireDifferentApprover,omitempty"`
+	RequireDifferentApprover bool `yaml:"requireDifferentApprover,omitempty" json:"requireDifferentApprover,omitempty"`
 }
 
 // #LobsterApprovalIdentity: the identity triple a completed approval records — the
 // same three fields, camelCase only (upstream's WorkflowApprovalIdentity).
 type LobsterApprovalIdentity struct {
-	InitiatedBy string `json:"initiatedBy,omitempty"`
+	InitiatedBy string `yaml:"initiatedBy,omitempty" json:"initiatedBy,omitempty"`
 
-	RequiredApprover string `json:"requiredApprover,omitempty"`
+	RequiredApprover string `yaml:"requiredApprover,omitempty" json:"requiredApprover,omitempty"`
 
-	RequireDifferentApprover bool `json:"requireDifferentApprover,omitempty"`
+	RequireDifferentApprover bool `yaml:"requireDifferentApprover,omitempty" json:"requireDifferentApprover,omitempty"`
 }
 
 // ── results ─────────────────────────────────────────────────────────────────
 // #LobsterStepResult: one step's recorded outcome.
 type LobsterStepResult struct {
-	Id string `json:"id"`
+	Id string `yaml:"id,omitempty" json:"id"`
 
-	Stdout string `json:"stdout,omitempty"`
+	Stdout string `yaml:"stdout,omitempty" json:"stdout,omitempty"`
 
-	Json any/* CUE top */ `json:"json,omitempty"`
+	Json any/* CUE top */ `yaml:"json,omitempty" json:"json,omitempty"`
 
-	Approved bool `json:"approved,omitempty"`
+	Approved bool `yaml:"approved,omitempty" json:"approved,omitempty"`
 
-	InitiatedBy string `json:"initiatedBy,omitempty"`
+	InitiatedBy string `yaml:"initiatedBy,omitempty" json:"initiatedBy,omitempty"`
 
-	ApprovedBy string `json:"approvedBy,omitempty"`
+	ApprovedBy string `yaml:"approvedBy,omitempty" json:"approvedBy,omitempty"`
 
-	Subject any/* CUE top */ `json:"subject,omitempty"`
+	Subject any/* CUE top */ `yaml:"subject,omitempty" json:"subject,omitempty"`
 
-	Response any/* CUE top */ `json:"response,omitempty"`
+	Response any/* CUE top */ `yaml:"response,omitempty" json:"response,omitempty"`
 
-	Skipped bool `json:"skipped,omitempty"`
+	Skipped bool `yaml:"skipped,omitempty" json:"skipped,omitempty"`
 
-	Error bool `json:"error,omitempty"`
+	Error bool `yaml:"error,omitempty" json:"error,omitempty"`
 
-	ErrorMessage string `json:"errorMessage,omitempty"`
+	ErrorMessage string `yaml:"errorMessage,omitempty" json:"errorMessage,omitempty"`
 }
 
 // #LobsterRunResult: the tool-mode envelope. `status` is the full upstream enum; the
 // engine's own wire reply (spec.WorkflowRunReply) maps onto it one-for-one.
 type LobsterRunResult struct {
-	Status string `json:"status"`
+	Status string `yaml:"status,omitempty" json:"status"`
 
-	Output []any/* CUE top */ `json:"output"`
+	Output []any/* CUE top */ `yaml:"output,omitempty" json:"output"`
 
-	RequiresApproval LobsterApprovalRequest `json:"requiresApproval,omitempty"`
+	RequiresApproval LobsterApprovalRequest `yaml:"requiresApproval,omitempty" json:"requiresApproval,omitempty"`
 
-	RequiresInput LobsterInputRequest `json:"requiresInput,omitempty"`
+	RequiresInput LobsterInputRequest `yaml:"requiresInput,omitempty" json:"requiresInput,omitempty"`
 
 	// "_meta" is QUOTED deliberately: an unquoted _meta would be a CUE hidden field
 	// (not emitted, not generated), which is not what upstream's JSON carries. The
 	// @go(Meta) rename is required for the same reason — without it gengotypes derives
 	// the UNEXPORTED field name `meta`, which encoding/json cannot populate.
-	Meta LobsterCostMeta `json:"_meta,omitempty"`
+	Meta LobsterCostMeta `yaml:"_meta,omitempty" json:"_meta,omitempty"`
 }
 
 // #LobsterApprovalRequest: the pending-approval block a needs_approval reply carries.
 type LobsterApprovalRequest struct {
-	Type string `json:"type"`
+	Type string `yaml:"type,omitempty" json:"type"`
 
-	Prompt string `json:"prompt"`
+	Prompt string `yaml:"prompt,omitempty" json:"prompt"`
 
-	Items []any/* CUE top */ `json:"items"`
+	Items []any/* CUE top */ `yaml:"items,omitempty" json:"items"`
 
-	Preview string `json:"preview,omitempty"`
+	Preview string `yaml:"preview,omitempty" json:"preview,omitempty"`
 
-	InitiatedBy string `json:"initiatedBy,omitempty"`
+	InitiatedBy string `yaml:"initiatedBy,omitempty" json:"initiatedBy,omitempty"`
 
-	RequiredApprover string `json:"requiredApprover,omitempty"`
+	RequiredApprover string `yaml:"requiredApprover,omitempty" json:"requiredApprover,omitempty"`
 
-	RequireDifferentApprover bool `json:"requireDifferentApprover,omitempty"`
+	RequireDifferentApprover bool `yaml:"requireDifferentApprover,omitempty" json:"requireDifferentApprover,omitempty"`
 
-	ResumeToken string `json:"resumeToken,omitempty"`
+	ResumeToken string `yaml:"resumeToken,omitempty" json:"resumeToken,omitempty"`
 
-	ApprovalId string `json:"approvalId,omitempty"`
+	ApprovalId string `yaml:"approvalId,omitempty" json:"approvalId,omitempty"`
 }
 
 // #LobsterInputRequest: the pending-input block a needs_input reply carries.
 type LobsterInputRequest struct {
-	Type string `json:"type"`
+	Type string `yaml:"type,omitempty" json:"type"`
 
-	Prompt string `json:"prompt"`
+	Prompt string `yaml:"prompt,omitempty" json:"prompt"`
 
-	ResponseSchema any/* CUE top */ `json:"responseSchema"`
+	ResponseSchema any/* CUE top */ `yaml:"responseSchema,omitempty" json:"responseSchema"`
 
-	Defaults any/* CUE top */ `json:"defaults,omitempty"`
+	Defaults any/* CUE top */ `yaml:"defaults,omitempty" json:"defaults,omitempty"`
 
-	Subject any/* CUE top */ `json:"subject,omitempty"`
+	Subject any/* CUE top */ `yaml:"subject,omitempty" json:"subject,omitempty"`
 
-	ResumeToken string `json:"resumeToken,omitempty"`
+	ResumeToken string `yaml:"resumeToken,omitempty" json:"resumeToken,omitempty"`
 }
 
 // #LobsterCostMeta: the `_meta` block (upstream: `{cost?: CostSummary}`).
 type LobsterCostMeta struct {
-	Cost LobsterCostSummary `json:"cost,omitempty"`
+	Cost LobsterCostSummary `yaml:"cost,omitempty" json:"cost,omitempty"`
 }
 
 // #LobsterCostSummary / #LobsterStepCost: the `_meta.cost` payload.
 type LobsterCostSummary struct {
-	TotalInputTokens any/* CUE number; int64 or float64 */ `json:"totalInputTokens"`
+	TotalInputTokens any/* CUE number; int64 or float64 */ `yaml:"totalInputTokens,omitempty" json:"totalInputTokens"`
 
-	TotalOutputTokens any/* CUE number; int64 or float64 */ `json:"totalOutputTokens"`
+	TotalOutputTokens any/* CUE number; int64 or float64 */ `yaml:"totalOutputTokens,omitempty" json:"totalOutputTokens"`
 
-	EstimatedCostUsd any/* CUE number; int64 or float64 */ `json:"estimatedCostUsd"`
+	EstimatedCostUsd any/* CUE number; int64 or float64 */ `yaml:"estimatedCostUsd,omitempty" json:"estimatedCostUsd"`
 
-	ByStep []LobsterStepCost `json:"byStep"`
+	ByStep []LobsterStepCost `yaml:"byStep,omitempty" json:"byStep"`
 }
 
 type LobsterStepCost struct {
-	StepId string `json:"stepId"`
+	StepId string `yaml:"stepId,omitempty" json:"stepId"`
 
-	Model any/* CUE disjunction: (null|string) */ `json:"model"`
+	Model any/* CUE disjunction: (null|string) */ `yaml:"model,omitempty" json:"model"`
 
-	InputTokens any/* CUE number; int64 or float64 */ `json:"inputTokens"`
+	InputTokens any/* CUE number; int64 or float64 */ `yaml:"inputTokens,omitempty" json:"inputTokens"`
 
-	OutputTokens any/* CUE number; int64 or float64 */ `json:"outputTokens"`
+	OutputTokens any/* CUE number; int64 or float64 */ `yaml:"outputTokens,omitempty" json:"outputTokens"`
 
-	CostUsd any/* CUE number; int64 or float64 */ `json:"costUsd"`
+	CostUsd any/* CUE number; int64 or float64 */ `yaml:"costUsd,omitempty" json:"costUsd"`
 }
