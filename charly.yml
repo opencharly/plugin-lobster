@@ -7,8 +7,8 @@
 # leg had no R10 witness at all. These are that witness.
 #
 #   check-lobster-local          — the ENGINE-semantics witness: refs/`when`, args/env,
-#                                  retry + `on_error`, timeout, parallel, for_each,
-#                                  composition, the approval gate, the pipeline stdlib,
+#                                  retry + `on_error`, timeout, parallel, for_each, the lane
+#                                  pool, composition, the approval gate, the pipeline stdlib,
 #                                  and the import/export round trip. EVERY step in it can
 #                                  FAIL — none is a declared skip (see the note that closes
 #                                  its plan).
@@ -48,20 +48,33 @@
 # the deployed plugins. The base-tree control, the RCA and both measurements are on
 # plugin-lobster#7.
 #
-# WHAT THIS BED STILL CANNOT GRADE — the `lanes:` arm. A `lanes:` step cannot pass on merged
-# refs yet, and the refusal is in the FRONT-END's own pin, not in this repo: plugin-pipeline
-# pins `sdk v0.2026293.2302`, whose workflowkit `execArms` has no `lanes`, so
-# `ValidatePipeline` refuses the step before any engine sees it, and the front-end cannot
-# adopt `sdk v0.2026294.1003` without leg 4's args widening (`cli.go` map[string]string ->
-# map[string]any). With a current front-end the same bed carries the arm green (13/13, a pool
-# of 2 binding per item); the step, its controls and those runs are on plugin-lobster#7, and
-# it lands here immediately after leg 4 (opencharly/plugin-pipeline#43).
+# THE LANE POOL IS NOW GRADED — `lanes:` fans out over a RUNTIME list on a pool of
+# `batch_size` workers. The `lobster-lanes` step (placed after `lobster-for-each`, before
+# `lobster-composition`) asserts that every item is visited exactly once with ITS OWN
+# `item_var`/`index_var` binding in ITEM order, that the in-flight count peaks at exactly
+# `batch_size` (more than one lane ran, a third never did — a pool, not a spawn per item),
+# that one failed lane fails the step so the next step never runs, and that a `lanes:` step
+# with no pool width is refused. It asserts the GATE's wording on purpose: the bed drives
+# the AUTHORED path, where `workflowkit.ValidatePipeline` refuses the step before any engine
+# sees it, so the engine's own wording is unreachable from here.
+#
+# The blocker was the FRONT-END's own pin, never this repo: plugin-pipeline pinned
+# `sdk v0.2026293.2302`, whose workflowkit `execArms` has no `lanes`, so
+# `ValidatePipeline` refused the step before any engine saw it, and it could not adopt
+# `sdk v0.2026294.1003` without widening its arg maps. opencharly/plugin-pipeline#49 carried
+# that widening plus the pins, and merged as the tag `v2026.294.1135`; this step lands on
+# that MERGED front-end. MEASURED STATE (2026-10-21, with this step): `13 steps: 13 passed,
+# 0 failed, 0 skipped`, `errors: 0`, `warnings: 0`, `ok: true`. The run directory, the
+# timings, and the one-variable control (the same step on the pre-#49 front-end: `12 passed,
+# 1 failed`, refused by the gate) are cited in the landing PR's body, per the rule above.
 #
 # The engine bed's count moved 13 -> 12 by REMOVING a step, not by dropping a test. The
 # `lobster-upstream-parity` step could not fail — its `exit_status: 3` made a self-declared skip
 # the step's EXPECTED exit code, and both of its branches set `rc=3` unconditionally — so it was
 # deleted rather than repaired, and the reason is recorded in its place at the end of that bed's
-# plan (and in the PR body). Every remaining step in both beds can FAIL; none is a declared skip.
+# plan (and in the PR body). It moved 12 -> 13 again by ADDING the lane pool described above,
+# which can fail on four properties — not by resurrecting the skip. Every remaining step in
+# both beds can FAIL; none is a declared skip.
 #
 # The two gates that made an earlier revision of this header say "UNRUN" are closed:
 #
@@ -163,8 +176,8 @@ check-lobster-local:
         description: >-
             The lobster engine's R10 witness on a disposable local deploy: refs and the
             `when` guard, args/env injection, retry + on_error, timeout, parallel,
-            for_each, composition, the approval gate, the pipeline stdlib, and the
-            import/export round trip. Every step here can FAIL: none is a declared skip.
+            for_each, the lane pool, composition, the approval gate, the pipeline stdlib, and
+            the import/export round trip. Every step here can FAIL: none is a declared skip.
         plan:
             - check: 'a step reference resolves — `$id.json.path` and `$id.stdout` — and a `when:` that is false records the step SKIPPED, not failed, while a true guard runs it'
               id: lobster-refs-when
@@ -451,6 +464,99 @@ check-lobster-local:
                   if [ "$rc" -ne 0 ]; then
                     echo "[FAIL] rc=$rc — captured output follows; $d is kept for inspection" >&2
                     for f in "$d"/out "$d"/err "$d"/absent.out "$d"/exp.out "$d"/imported.yml "$d"/reimported.yml "$d"/*.marker; do
+                      [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
+                    done
+                  else
+                    rm -rf "$d"
+                  fi
+                  cd /; exit $rc
+                in_container: false
+            - check: '`lanes` fans out over a RUNTIME collection on a POOL of `batch_size` workers — every item is visited exactly once with ITS OWN `item_var`/`index_var` binding, more than one lane runs at once, the loop order is item order, one failed lane fails the step, and a lane step with no pool width is refused by the gate'
+              id: lobster-lanes
+              context:
+                - runtime
+              exit_status: 0
+              command:
+                command: |-
+                  d=$(mktemp -d); cd "$d"; mkdir -p candy/x
+                  printf 'discover:\n    - path: candy\n      recursive: true\n' > charly.yml
+                  cat > candy/x/charly.yml <<YAML
+                  lane-pool:
+                    pipeline:
+                      description: pooled fan-out over a runtime list
+                      steps:
+                        - id: seed
+                          run: printf '[{"k":"a"},{"k":"b"},{"k":"c"},{"k":"d"}]'
+                        - id: lane
+                          lanes: \$seed.json
+                          batch_size: 2
+                          item_var: it
+                          index_var: ix
+                          steps:
+                            - id: body
+                              run: printf 'S %s\n' "\$ix.json" >> $d/lanes.log; sleep 0.5; printf 'E %s\n' "\$ix.json" >> $d/lanes.log; printf '%s:%s' "\$ix.json" "\$it.json.k"
+                        - id: collect
+                          run: cat > $d/lane.json
+                          stdin: \$lane.json
+                  lane-fail:
+                    pipeline:
+                      description: one failing lane fails the step
+                      steps:
+                        - id: seed
+                          run: printf '[{"k":"a"},{"k":"b"}]'
+                        - id: lane
+                          lanes: \$seed.json
+                          batch_size: 2
+                          item_var: it
+                          steps:
+                            - id: body
+                              run: test "\$it.json.k" != "b"
+                        - id: after
+                          run: printf 'RAN' > $d/after.marker
+                  lane-zero:
+                    pipeline:
+                      description: a lanes step with no pool width
+                      steps:
+                        - id: seed
+                          run: printf '[{"k":"a"}]'
+                        - id: lane
+                          lanes: \$seed.json
+                          item_var: it
+                          steps:
+                            - id: body
+                              run: printf '%s' "\$it.json.k"
+                  YAML
+                  rc=0
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run lane-pool > "$d/out" 2>"$d/err" || rc=1
+                  grep -q 'ran via workflow:lobster' "$d/out" || rc=1
+                  # source: batch.go:367-378 — runLoopItem installs item/index as a SCOPE (a per-item
+                  # copy of the result set), never process env; the loop's value is its ARRAY of
+                  # iteration results in ITEM order (batch.go:238-241), not completion order. A lane
+                  # body therefore reads ITS item as `$it.json.<path>` — a scalar string item binds
+                  # `.stdout` only (engine.go:1056-1059 parseJSON on a bare word fails), which is why
+                  # the fixture seeds OBJECTS.
+                  [ "$(cat "$d/lane.json" 2>/dev/null)" = '["0:a","1:b","2:c","3:d"]' ] || rc=1
+                  # source: batch.go:275-330 — exactly `batch_size` workers pull indices from ONE
+                  # channel, so the in-flight count peaks AT the width: 2 lanes overlap (the arm really
+                  # fans out) and a third never does (it is a pool, not a spawn per item).
+                  conc=$(awk '$1=="S"{c++; if(c>m)m=c} $1=="E"{c--} END{print m+0}' "$d/lanes.log" 2>/dev/null)
+                  [ "${conc:-0}" -ge 2 ] && [ "${conc:-0}" -le 2 ] || rc=1
+                  # source: batch.go:346-352 — ANY failed lane fails the step with the LOWEST observed
+                  # index; the front-end surfaces it as status=error, and the step after the loop
+                  # never runs (engine.go:519 returns the loop's error).
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run lane-fail > "$d"/fail.out 2>"$d"/fail.err || true
+                  grep -q 'status=error' "$d"/fail.out || rc=1
+                  test ! -e "$d"/after.marker || rc=1
+                  # the WIDTH is not defaultable. This asserts the GATE's text on purpose: the bed
+                  # drives the AUTHORED path (`charly pipeline run`), so workflowkit.ValidatePipeline
+                  # refuses the step BEFORE any engine sees it, and the ENGINE's own wording
+                  # ("Workflow step <id> lanes requires batch_size >= 1 (the pool width)") is
+                  # unreachable from here. Asserting that one would be an assertion that never runs.
+                  CHARLY_PROJECT_DIR="$d" ${CHARLY_BIN} pipeline run lane-zero > "$d"/zero.out 2>"$d"/zero.err || true
+                  grep -q 'step "lane": lanes requires batch_size >= 1 (the pool width)' "$d"/zero.err || rc=1
+                  if [ "$rc" -ne 0 ]; then
+                    echo "[FAIL] rc=$rc conc=${conc:-?} — captured output follows; $d is kept for inspection" >&2
+                    for f in "$d"/out "$d"/err "$d"/fail.out "$d"/fail.err "$d"/zero.out "$d"/zero.err "$d"/lanes.log "$d"/lane.json; do
                       [ -f "$f" ] && { echo "--- $f ---" >&2; cat "$f" >&2; }
                     done
                   else
