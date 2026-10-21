@@ -4,8 +4,8 @@ go 1.26.8
 
 require (
 	cuelang.org/go v0.16.1
-	github.com/opencharly/sdk v0.2026294.615
-	github.com/opencharly/spec v0.2026294.550
+	github.com/opencharly/sdk v0.2026294.1003
+	github.com/opencharly/spec v0.2026294.929
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
