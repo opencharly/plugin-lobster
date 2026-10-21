@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -455,8 +454,6 @@ func TestStopSignalContextCancelsOnce(t *testing.T) {
 		t.Fatal("release must cancel the released context (nothing may use it afterwards)")
 	}
 }
-
-var _ = sync.Mutex{}
 
 // TestLanesPoolUnderLoad drives the pool at a width above one worker per CPU with a body
 // long enough that the lanes genuinely overlap, and asserts the invariants that a race or
