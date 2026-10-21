@@ -24,6 +24,7 @@ package pluginlobster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -283,9 +284,11 @@ func (st *runState) runLoopInOrder(ctx context.Context, step *params.LobsterStep
 }
 
 // runLoopPooled is the lane pool: EXACTLY `width` workers (never one goroutine per item),
-// each pulling the next index and writing its own slot. A failure cancels the pool, and
-// the LOWEST failing index is the one reported, so the message does not depend on the
-// order the lanes happened to finish in.
+// each pulling the next index and writing its own slot. The first failure cancels the pool
+// and the reported reason is the LOWEST-INDEX lane failure the pool OBSERVED — not
+// whichever lane happened to report first — so the message is stable for a given failure.
+// A lane that dies only because a SIBLING cancelled the pool is not a reason: it is not
+// recorded, or every failure would be reported as "context canceled".
 func (st *runState) runLoopPooled(ctx context.Context, step *params.LobsterStep, items []any, itemVar, indexVar string, env map[string]string, cwd string, width int) ([]any, error) {
 	if width > len(items) {
 		// A pool can never be wider than the work: an idle worker would be a goroutine
@@ -310,10 +313,14 @@ func (st *runState) runLoopPooled(ctx context.Context, step *params.LobsterStep,
 				}
 				out, err := st.runLoopItem(poolCtx, step, items[i], i, itemVar, indexVar, env, cwd)
 				if err != nil {
-					// Only a failure that is NOT the pool's own cancellation is this lane's
-					// to report: a sibling's failure cancels the rest, and those lanes must
-					// not overwrite the reason with "context canceled".
-					if poolCtx.Err() == nil {
+					// Only a failure that is NOT the pool's own cancellation is this lane's to
+					// report: a sibling's failure cancels the rest, and those lanes must not
+					// become the reason ("context canceled"). Recording it rather than
+					// dropping it when the pool is ALREADY cancelled keeps two lanes that fail
+					// at the same instant from hiding the lower index.
+					cancelledByPool := poolCtx.Err() != nil &&
+						(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+					if !cancelledByPool {
 						failures[i] = err
 					}
 					cancel()
@@ -335,7 +342,8 @@ feed:
 	close(jobs)
 	wg.Wait()
 
-	// The aggregate gate: ANY failed lane fails the step.
+	// The aggregate gate: ANY failed lane fails the step, reported by the LOWEST observed
+	// index so the message does not depend on completion order.
 	for i, err := range failures {
 		if err != nil {
 			return nil, fmt.Errorf("Workflow step %s lane %d: %w", step.Id, i, err)
