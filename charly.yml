@@ -28,6 +28,35 @@
 # is only what is invariant under a comment-only edit of itself: the step counts and their
 # result.
 #
+# MEASURED STATE (2026-10-21, later the same day) — `check-lobster-local` is GREEN, and the
+# RED state this header used to record was a DRIVER defect, not this bed's assembly.
+# `12 steps: 12 passed, 0 failed, 0 skipped`, `errors: 0`, `warnings: 0`, `ok: true`, on a
+# full `charly check run` sequence (deploy-add -> check-live -> update -> cleanup) whose
+# driver is a charly that serves BOTH faces: the engine from this project's candy and the
+# front-end from `CHARLY_PLUGIN_DIR` (the deployment shape a package install has). The
+# earlier `12 steps: 0 passed, 12 failed` came from driving the same bed with a binary that
+# carried no `CHARLY_PLUGIN_DIR` and a welded front-end, so the `pipeline` kind never
+# resolved and `charly pipeline run` never reached an engine —
+#
+#   node "each": no kind discriminator — none of its keys ("pipeline") is a recognized kind
+#
+# opencharly/charly#1007 fixed the two seams that produced it (a baked plugin's `kind:` word
+# now reaches the parse-time kind set, and a non-interactive command plugin dispatches
+# through its provider's Invoke with the host reverse channel attached), and the bed has been
+# green on that driver since. So NO assembly repair is owed here: the fixtures may stay as
+# they are, and the recipe this bed's green state runs on is `CHARLY_PLUGIN_DIR` pointed at
+# the deployed plugins. The base-tree control, the RCA and both measurements are on
+# plugin-lobster#7.
+#
+# WHAT THIS BED STILL CANNOT GRADE — the `lanes:` arm. A `lanes:` step cannot pass on merged
+# refs yet, and the refusal is in the FRONT-END's own pin, not in this repo: plugin-pipeline
+# pins `sdk v0.2026293.2302`, whose workflowkit `execArms` has no `lanes`, so
+# `ValidatePipeline` refuses the step before any engine sees it, and the front-end cannot
+# adopt `sdk v0.2026294.1003` without leg 4's args widening (`cli.go` map[string]string ->
+# map[string]any). With a current front-end the same bed carries the arm green (13/13, a pool
+# of 2 binding per item); the step, its controls and those runs are on plugin-lobster#7, and
+# it lands here immediately after leg 4 (opencharly/plugin-pipeline#43).
+#
 # The engine bed's count moved 13 -> 12 by REMOVING a step, not by dropping a test. The
 # `lobster-upstream-parity` step could not fail — its `exit_status: 3` made a self-declared skip
 # the step's EXPECTED exit code, and both of its branches set `rc=3` unconditionally — so it was

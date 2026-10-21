@@ -28,7 +28,7 @@ type LobsterFile struct {
 }
 
 // ── one step ────────────────────────────────────────────────────────────────
-// Exactly one of run | pipeline | workflow | parallel | for_each, OR an approval |
+// Exactly one of run | pipeline | workflow | parallel | for_each | lanes, OR an approval |
 // input gate. load.ts enforces the exclusivity and the counts; the CUE bounds below
 // carry the per-field ones (types, enums, numeric ranges) it also enforces.
 type LobsterStep struct {
@@ -52,6 +52,10 @@ type LobsterStep struct {
 	Parallel LobsterParallel `json:"parallel,omitempty"`
 
 	For_each string `json:"for_each,omitempty"`
+
+	// lanes: the charly-only POOLED fan-out arm (see #LobsterLanes below). The body in
+	// `steps` runs once per item of THIS collection through a pool of `batch_size` lanes.
+	Lanes string `json:"lanes,omitempty"`
 
 	Item_var string `json:"item_var,omitempty"`
 

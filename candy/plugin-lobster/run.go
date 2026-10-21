@@ -28,8 +28,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 
 	pb "github.com/opencharly/spec/proto"
 	"github.com/opencharly/spec/spec"
@@ -40,6 +43,10 @@ func runWorkflow(ctx context.Context, _ *pb.InvokeRequest, in spec.WorkflowRunRe
 	if strings.TrimSpace(in.Pipeline) == "" {
 		return nil, fmt.Errorf("workflow-run: pipeline is required")
 	}
+	// A stop request for this process must REACH THE RUN, not kill the engine out from
+	// under its children (see stopSignalContext).
+	ctx, releaseRun := stopSignalsForRun(ctx)
+	defer releaseRun()
 	genDir, err := resolveGenDir(in.Pipeline, in.GenDir)
 	if err != nil {
 		return nil, err
@@ -64,7 +71,7 @@ func runWorkflow(ctx context.Context, _ *pb.InvokeRequest, in spec.WorkflowRunRe
 		dryRun:      in.DryRun,
 	})
 
-	result, err := eng.runFile(ctx, lobsterPath, stringArgsToAny(in.Args), nil)
+	result, err := eng.runFile(ctx, lobsterPath, in.Args, nil)
 	marker := strings.TrimSpace(env[scheduleMarkerEnv])
 	if err != nil {
 		writeScheduleMarker(marker, in.Pipeline, "error", err)
@@ -77,6 +84,9 @@ func runWorkflow(ctx context.Context, _ *pb.InvokeRequest, in spec.WorkflowRunRe
 
 // resumeWorkflow answers a pending approval or input gate.
 func resumeWorkflow(ctx context.Context, _ *pb.InvokeRequest, in spec.WorkflowResumeRequest) (*spec.WorkflowRunReply, error) {
+	// A resume EXECUTES steps too, so it carries the same stop-signal bridge as a run.
+	ctx, releaseRun := stopSignalsForRun(ctx)
+	defer releaseRun()
 	store := newStateStore(environMap())
 
 	stateKey := ""
@@ -306,15 +316,79 @@ func resolveCharlyBin(env map[string]string) string {
 	return "charly"
 }
 
-func stringArgsToAny(in map[string]string) map[string]any {
-	if len(in) == 0 {
-		return nil
+// osStopSignals is the signal set that asks this ENGINE PROCESS to stop: an operator's
+// Ctrl-C, and a supervisor's SIGTERM.
+var osStopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+
+// processStopSignals registers this process's stop signals and returns the channel
+// stopSignalContext consumes plus the func that unregisters it.
+func processStopSignals() (<-chan os.Signal, func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, osStopSignals...)
+	return ch, func() { signal.Stop(ch) }
+}
+
+// stopSignalsForRun is the ONE place a run is wired to this process's stop signals: every
+// op that EXECUTES steps (run and resume) takes its context from here, so no execution
+// path can be the one that forgot.
+func stopSignalsForRun(ctx context.Context) (context.Context, func()) {
+	sigCh, stopSignals := processStopSignals()
+	runCtx, release := stopSignalContext(ctx, sigCh)
+	return runCtx, func() {
+		release()
+		stopSignals()
 	}
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
+}
+
+// stopSignalContext returns the context ONE run executes under, plus the release function
+// the caller MUST defer.
+//
+// WHY. This engine spawns child processes: every `run:`/`command:` step, and — the case
+// this exists for — every lane of a pooled fan-out. A child outlives a plain process
+// death, so an engine that is stopped mid-run leaves its children running, holding
+// whatever made the run exclusive (the per-bed flock a check run takes), and every later
+// run dies on "already running in this project". The reference implementation of the lane
+// model installed exactly this around its batch drive after that cascade was observed
+// live, and a lane pool without it is a regression dressed as a restoration.
+//
+// CANCEL is what reaches them: localShell runs every command under exec.CommandContext,
+// in its OWN process group, and SIGKILLs that group when the context ends — so the
+// signal becomes a teardown of the children rather than a leak.
+//
+// The signal is HANDED BACK when the run returns: `release` restores the default
+// disposition and re-raises it, so a stop request this engine answered is still answered
+// to whoever sent it (otherwise registering here would make the process ignore SIGTERM).
+// Re-raising needs a real syscall.Signal, which is why a test injecting its own channel
+// takes the cancellation path and never takes that one.
+func stopSignalContext(ctx context.Context, sigs <-chan os.Signal) (context.Context, func()) {
+	runCtx, cancel := context.WithCancel(ctx)
+	var mu sync.Mutex
+	var held os.Signal
+	finished := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigs:
+			mu.Lock()
+			held = sig
+			mu.Unlock()
+			cancel()
+		case <-finished:
+		}
+	}()
+	var once sync.Once
+	return runCtx, func() {
+		once.Do(func() {
+			close(finished)
+			cancel()
+			mu.Lock()
+			sig := held
+			mu.Unlock()
+			if s, ok := sig.(syscall.Signal); ok {
+				signal.Reset(s)
+				_ = syscall.Kill(os.Getpid(), s)
+			}
+		})
 	}
-	return out
 }
 
 func copyFile(src, dst string) error {
