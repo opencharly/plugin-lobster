@@ -257,7 +257,25 @@ func validateStep(step map[string]any, seen map[string]bool) error {
 		return ok
 	}()
 	if isForEach {
-		if err := validateForEach(id, step); err != nil {
+		if err := validateLoopArm(id, step, "for_each"); err != nil {
+			return err
+		}
+	}
+
+	// lanes — the charly-only POOLED fan-out arm. Same operand grammar as for_each (a
+	// step-reference expression resolving to a collection), same body, same item/index
+	// binding; the difference is the WIDTH it runs at, so the two share ONE validator.
+	if lv, has := step["lanes"]; has {
+		if _, ok := asString(lv); !ok {
+			return fmt.Errorf("Workflow step %s lanes must be a string (step reference expression)", id)
+		}
+	}
+	isLanes := func() bool {
+		_, ok := asString(step["lanes"])
+		return ok
+	}()
+	if isLanes {
+		if err := validateLoopArm(id, step, "lanes"); err != nil {
 			return err
 		}
 	}
@@ -278,15 +296,18 @@ func validateStep(step map[string]any, seen map[string]bool) error {
 	if isForEach {
 		executionCount++
 	}
+	if isLanes {
+		executionCount++
+	}
 
 	if executionCount == 0 && !isApprovalStep(step["approval"]) && !isInputStep(step["input"]) {
-		return fmt.Errorf("Workflow step %s requires run, command, pipeline, workflow, parallel, for_each, approval, or input", id)
+		return fmt.Errorf("Workflow step %s requires run, command, pipeline, workflow, parallel, for_each, lanes, approval, or input", id)
 	}
 	if executionCount > 1 {
-		return fmt.Errorf("Workflow step %s can only define one of run, command, pipeline, workflow, parallel, or for_each", id)
+		return fmt.Errorf("Workflow step %s can only define one of run, command, pipeline, workflow, parallel, for_each, or lanes", id)
 	}
 	if executionCount > 0 && isInputStep(step["input"]) {
-		return fmt.Errorf("Workflow step %s input steps cannot define run, command, pipeline, workflow, parallel, or for_each", id)
+		return fmt.Errorf("Workflow step %s input steps cannot define run, command, pipeline, workflow, parallel, for_each, or lanes", id)
 	}
 	if isApprovalStep(step["approval"]) && isInputStep(step["input"]) {
 		return fmt.Errorf("Workflow step %s cannot define both approval and input", id)
@@ -454,34 +475,49 @@ func validateParallel(stepID string, par map[string]any, seen map[string]bool) e
 	return nil
 }
 
-func validateForEach(stepID string, step map[string]any) error {
+// validateLoopArm validates ONE loop arm's step — `for_each` or `lanes`. The two arms
+// share everything but the width they run at, so they share one validator (R2): the
+// operand grammar, the body, the item/index binding and the refusals are identical, and a
+// rule added to one arm must not be able to fork here. `arm` only names the arm in the
+// messages and adds the two arm-specific width rules.
+func validateLoopArm(stepID string, step map[string]any, arm string) error {
 	subsRaw, ok := step["steps"].([]any)
 	if !ok || len(subsRaw) == 0 {
-		return fmt.Errorf("Workflow step %s for_each requires a non-empty steps array", stepID)
+		return fmt.Errorf("Workflow step %s %s requires a non-empty steps array", stepID, arm)
 	}
 	if v, has := step["batch_size"]; has {
 		if n, ok := toInt(v); !ok || n < 1 {
 			return fmt.Errorf("Workflow step %s batch_size must be a positive integer", stepID)
 		}
+	} else if arm == "lanes" {
+		// The width is the WHOLE point of this arm, and a default would be a number the
+		// author never wrote (and an unbounded pool is the spawn-per-item the arm exists to
+		// replace), so it is required rather than defaulted.
+		return fmt.Errorf("Workflow step %s lanes requires batch_size >= 1 (the pool width)", stepID)
 	}
 	if v, has := step["pause_ms"]; has {
 		if f, ok := toFloat(v); !ok || f < 0 {
 			return fmt.Errorf("Workflow step %s pause_ms must be a finite non-negative number", stepID)
 		}
+		if arm == "lanes" {
+			// A pause between ITERATIONS is a sequential-loop pacing knob. A lane pool paces
+			// by width, and honouring a pause here would mean silently doing neither.
+			return fmt.Errorf("Workflow step %s lanes cannot define pause_ms: a lane pool paces by batch_size, not by a pause between iterations", stepID)
+		}
 	}
 	if isApprovalStep(step["approval"]) {
-		return fmt.Errorf("Workflow step %s for_each steps cannot define approval (use a separate step after the loop)", stepID)
+		return fmt.Errorf("Workflow step %s %s steps cannot define approval (use a separate step after the loop)", stepID, arm)
 	}
 	if isInputStep(step["input"]) {
-		return fmt.Errorf("Workflow step %s for_each steps cannot define input (use a separate step after the loop)", stepID)
+		return fmt.Errorf("Workflow step %s %s steps cannot define input (use a separate step after the loop)", stepID, arm)
 	}
 	if v, has := step["stdin"]; has && v != nil {
-		return fmt.Errorf("Workflow step %s for_each steps cannot define stdin (loop input comes from the for_each expression)", stepID)
+		return fmt.Errorf("Workflow step %s %s steps cannot define stdin (loop input comes from the %s expression)", stepID, arm, arm)
 	}
 	loopShell, _ := firstString(step["run"], step["command"])
 	loopPipeline, _ := asString(step["pipeline"])
 	if loopShell != "" || loopPipeline != "" || present(step, "workflow") || present(step, "parallel") {
-		return fmt.Errorf("Workflow step %s for_each cannot also define run, command, pipeline, workflow, or parallel", stepID)
+		return fmt.Errorf("Workflow step %s %s cannot also define run, command, pipeline, workflow, or parallel", stepID, arm)
 	}
 	if v, has := step["item_var"]; has {
 		if _, ok := asString(v); !ok {
@@ -509,45 +545,45 @@ func validateForEach(stepID string, step map[string]any) error {
 	for _, sRaw := range subsRaw {
 		sub, ok := asMap(sRaw)
 		if !ok {
-			return fmt.Errorf("Workflow step %s for_each sub-step requires an id", stepID)
+			return fmt.Errorf("Workflow step %s %s sub-step requires an id", stepID, arm)
 		}
 		sid, _ := asString(sub["id"])
 		if sid == "" {
-			return fmt.Errorf("Workflow step %s for_each sub-step requires an id", stepID)
+			return fmt.Errorf("Workflow step %s %s sub-step requires an id", stepID, arm)
 		}
 		if sid == itemVar || sid == indexVar {
-			return fmt.Errorf("Workflow step %s for_each sub-step id '%s' conflicts with loop variable", stepID, sid)
+			return fmt.Errorf("Workflow step %s %s sub-step id '%s' conflicts with loop variable", stepID, arm, sid)
 		}
 		if subIDs[sid] {
-			return fmt.Errorf("Workflow step %s duplicate for_each sub-step id: %s", stepID, sid)
+			return fmt.Errorf("Workflow step %s duplicate %s sub-step id: %s", stepID, arm, sid)
 		}
 		subIDs[sid] = true
 
 		if isApprovalStep(sub["approval"]) || isInputStep(sub["input"]) {
-			return fmt.Errorf("Workflow step %s for_each sub-steps cannot contain approval or input steps", stepID)
+			return fmt.Errorf("Workflow step %s %s sub-steps cannot contain approval or input steps", stepID, arm)
 		}
 		if v, has := sub["run"]; has {
 			if _, ok := asString(v); !ok {
-				return fmt.Errorf("Workflow step %s for_each sub-step %s run must be a string", stepID, sid)
+				return fmt.Errorf("Workflow step %s %s sub-step %s run must be a string", stepID, arm, sid)
 			}
 		}
 		if v, has := sub["command"]; has {
 			if _, ok := asString(v); !ok {
-				return fmt.Errorf("Workflow step %s for_each sub-step %s command must be a string", stepID, sid)
+				return fmt.Errorf("Workflow step %s %s sub-step %s command must be a string", stepID, arm, sid)
 			}
 		}
 		if v, has := sub["pipeline"]; has {
 			if _, ok := asString(v); !ok {
-				return fmt.Errorf("Workflow step %s for_each sub-step %s pipeline must be a string", stepID, sid)
+				return fmt.Errorf("Workflow step %s %s sub-step %s pipeline must be a string", stepID, arm, sid)
 			}
 		}
-		if present(sub, "workflow") || present(sub, "parallel") || present(sub, "for_each") {
-			return fmt.Errorf("Workflow step %s for_each sub-step %s cannot define workflow, parallel, or for_each", stepID, sid)
+		if present(sub, "workflow") || present(sub, "parallel") || present(sub, "for_each") || present(sub, "lanes") {
+			return fmt.Errorf("Workflow step %s %s sub-step %s cannot define workflow, parallel, for_each, or lanes", stepID, arm, sid)
 		}
 		subShell, _ := firstString(sub["run"], sub["command"])
 		subPipeline, _ := asString(sub["pipeline"])
 		if subShell == "" && subPipeline == "" {
-			return fmt.Errorf("Workflow step %s for_each sub-step %s requires run, command, or pipeline", stepID, sid)
+			return fmt.Errorf("Workflow step %s %s sub-step %s requires run, command, or pipeline", stepID, arm, sid)
 		}
 		count := 0
 		if subShell != "" {
@@ -557,10 +593,10 @@ func validateForEach(stepID string, step map[string]any) error {
 			count++
 		}
 		if count > 1 {
-			return fmt.Errorf("Workflow step %s for_each sub-step %s can only define one of run, command, or pipeline", stepID, sid)
+			return fmt.Errorf("Workflow step %s %s sub-step %s can only define one of run, command, or pipeline", stepID, arm, sid)
 		}
-		// A for_each sub-step id is scoped to its loop (upstream checks it against the
-		// loop's own set only), so it does NOT join the global id set.
+		// A loop sub-step id is scoped to its loop (upstream checks it against the loop's
+		// own set only), so it does NOT join the global id set.
 	}
 	return nil
 }

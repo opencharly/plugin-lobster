@@ -88,7 +88,7 @@ func scheduleApply(ctx context.Context, pipeline string) (*spec.WorkflowSchedule
 	type schedule struct {
 		cron       string
 		timezone   string
-		args       map[string]string
+		args       map[string]any
 		persistent bool
 	}
 	var schedules []schedule

@@ -103,7 +103,7 @@
 }
 
 // ── one step ────────────────────────────────────────────────────────────────
-// Exactly one of run | pipeline | workflow | parallel | for_each, OR an approval |
+// Exactly one of run | pipeline | workflow | parallel | for_each | lanes, OR an approval |
 // input gate. load.ts enforces the exclusivity and the counts; the CUE bounds below
 // carry the per-field ones (types, enums, numeric ranges) it also enforces.
 #LobsterStep: {
@@ -122,6 +122,9 @@
 
 	parallel?: #LobsterParallel
 	for_each?: string
+	// lanes: the charly-only POOLED fan-out arm (see #LobsterLanes below). The body in
+	// `steps` runs once per item of THIS collection through a pool of `batch_size` lanes.
+	lanes?:      string
 	item_var?: string
 	index_var?: string
 	batch_size?: int & >=1
@@ -148,6 +151,36 @@
 	// same spec in its own wire form.
 	redo?: #LobsterRedo
 }
+
+// ── lanes ───────────────────────────────────────────────────────────────────
+// #LobsterLanes is not a def: the arm is the `lanes` + `batch_size` + `steps` step keys
+// above (a def is unnecessary — the shape IS those keys, which upstream already carries).
+// It is documented here because it is the one fan-out arm that is CHARLY-ONLY, and a
+// reader must know why it is not a divergence from upstream.
+//
+// WHAT IT IS. `parallel` fans out over branches that are STATIC in the file. `for_each`
+// walks a RUNTIME collection but does so IN ORDER, because that is upstream's own
+// semantics (upstream's `batch_size` only decides when `pause_ms` fires, so this engine
+// accepts the hint there and deliberately does not pace the loop with it). A pooled
+// fan-out over a runtime collection is neither, and the charly-side consumers need
+// exactly that: a per-PR (or per-entity) evaluation over a list that only exists at run
+// time, run a few at a time rather than all at once or one at a time.
+//
+// WHY IT RIDES THESE STEP KEYS. The same reason `redo` does: upstream's loader is OPEN
+// over unknown step keys, so a workflow carrying `lanes` stays runnable by upstream —
+// which ignores the key and runs the step as an ordinary no-arm step — while charly's
+// native engine honours it, and the exported file never needs a translation pass.
+//
+// THE WIDTH IS `batch_size`, and it is REQUIRED here. That is upstream's own step hint
+// ("how many iterations a caller may run at once") finally honoured by the arm that can
+// honour it; `for_each` keeps upstream's behaviour, this arm reads it as the pool width.
+// It reaches this engine through the ordinary lowering (the front-end's `#PipelineArms`
+// carries `batch_size` -> the lowered step -> params.LobsterStep.Batch_size), so the
+// width is an authored knob, not a constant: the loader refuses a `lanes` step without a
+// positive `batch_size` (lobster.go) rather than inventing a default.
+//
+// The loop's value is the array of per-item results in ITEM order, exactly like
+// `for_each` — a consumer's `$id.json.N` never depends on which lane finished first.
 
 // ── redo ─────────────────────────────────────────────────────────────────────
 // #LobsterRedo: the charly-only conditional BACK-EDGE. A failing step emits a trigger on
