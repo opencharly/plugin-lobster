@@ -510,9 +510,15 @@ func (st *runState) redoBackEdge(step *params.LobsterStep, trigger string) (targ
 	return j, true, nil
 }
 
-// executeStep runs one step's exec arm with the retry policy applied. A for_each step is
-// dispatched to runForEach and takes no exec arm of its own.
+// executeStep runs one step's exec arm with the retry policy applied. A loop step is
+// dispatched to its fan-out arm and takes no exec arm of its own: `for_each` (sequential,
+// upstream's semantics) or `lanes` (the pooled arm). The loader already refuses a step
+// that sets both.
 func (st *runState) executeStep(ctx context.Context, step *params.LobsterStep, env map[string]string, cwd string) (*stepResult, map[string]*stepResult, error) {
+	if step.Lanes != "" && len(step.Steps) > 0 {
+		res, err := st.runLanes(ctx, step, env, cwd)
+		return res, nil, err
+	}
 	if step.For_each != "" && len(step.Steps) > 0 {
 		res, err := st.runForEach(ctx, step, env, cwd)
 		return res, nil, err
@@ -831,6 +837,8 @@ func (st *runState) dryRun(startIndex int64) (*runResult, error) {
 
 func describeArm(step *params.LobsterStep) string {
 	switch {
+	case step.Lanes != "":
+		return "lanes"
 	case step.For_each != "":
 		return "for_each"
 	case len(step.Parallel.Branches) > 0:

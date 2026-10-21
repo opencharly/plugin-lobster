@@ -28,6 +28,24 @@
 # is only what is invariant under a comment-only edit of itself: the step counts and their
 # result.
 #
+# MEASURED STATE (2026-10-21) — `check-lobster-local` is RED, and it is red on the BASE
+# commit as well. Both trees report `12 steps: 0 passed, 12 failed` against a driver built
+# from charly `2026.294.0012` with the front-end welded (`--dev-plugin
+# plugin-pipeline=<checkout>`), and the FIRST failing step's error names the cause: the
+# bed's fixtures author `kind:pipeline` in a `mktemp` project that declares NO plugin at
+# all, and the current charly no longer threads a welded plugin's kinds into a project
+# that does not declare the plugin —
+#
+#   node "each": no kind discriminator — none of its keys ("pipeline") is a recognized kind
+#
+# so `charly pipeline run` never reaches the engine, and nothing below it can be asserted.
+# The same driver also carries no `CHARLY_PLUGIN_DIR`, so `workflow:lobster` would have no
+# provider even once the kind resolves. The bed's ASSEMBLY therefore needs a repair (the
+# fixtures must declare the front-end, and the driver must be pointed at the deployed
+# engine) before this header may claim a green state again; the engine arm it was going to
+# grade is proved by the module's own tests in the meantime. The measurement, the base-tree
+# control and the RCA are in plugin-lobster#7 (cited from the PR body that added this note).
+#
 # The engine bed's count moved 13 -> 12 by REMOVING a step, not by dropping a test. The
 # `lobster-upstream-parity` step could not fail — its `exit_status: 3` made a self-declared skip
 # the step's EXPECTED exit code, and both of its branches set `rc=3` unconditionally — so it was
